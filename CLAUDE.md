@@ -54,12 +54,77 @@ python3 analyze.py results.db
 **AI Readiness:** has_schema, schema_types, has_llms_txt, llms_txt_score, has_robots, has_sitemap, blocks_ai_bots
 **Legal Compliance:** has_impressum, impressum_has_email, impressum_has_address, has_datenschutz, has_cookie_banner, cookie_provider
 
-## VPS Deployment
+## VPS Deployment (MANDATORY — read before deploying)
 
-Scanner runs on VPS at ***REDACTED***. Deploy with:
+**VPS:** user@***REDACTED*** (same VPS as leadgen backend)
+
+### First-time setup
 ```bash
+# Create directory on VPS
+ssh user@***REDACTED*** "mkdir -p /var/www/swiss-web-report/data"
+
+# Deploy code
 scp -r scanner/ scan.py analyze.py requirements.txt user@***REDACTED***:/var/www/swiss-web-report/
+
+# Copy zonefile (strip trailing dots first)
+sed 's/\.$//' ***REDACTED***/ch_uniq.txt > /tmp/ch_domains.txt
+scp /tmp/ch_domains.txt user@***REDACTED***:/var/www/swiss-web-report/data/ch_domains.txt
+
+# Install dependencies on VPS
+ssh user@***REDACTED*** "cd /var/www/swiss-web-report && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
+
+# Clean logs first (frees ~900MB)
+ssh user@***REDACTED*** "journalctl --vacuum-size=100M"
+
+# Increase file descriptor limit for async connections
+ssh user@***REDACTED*** "echo '* soft nofile 65535' >> /etc/security/limits.conf"
 ```
+
+### Run the scan
+```bash
+# SSH into VPS, use tmux so it survives disconnection
+ssh user@***REDACTED***
+tmux new -s webscan
+cd /var/www/swiss-web-report
+
+# Start at concurrency 200, monitor for 10 min
+.venv/bin/python3 scan.py --input data/ch_domains.txt --output data/results.db --concurrency 200
+
+# Ctrl+B, D to detach from tmux
+# tmux attach -t webscan to reconnect
+```
+
+### Monitor progress
+```bash
+# Check how many domains scanned so far
+ssh user@***REDACTED*** "sqlite3 /var/www/swiss-web-report/data/results.db 'SELECT COUNT(*) FROM scan_results'"
+
+# Check active count
+ssh user@***REDACTED*** "sqlite3 /var/www/swiss-web-report/data/results.db 'SELECT COUNT(*) FROM scan_results WHERE is_active=1'"
+
+# Check system resources
+ssh user@***REDACTED*** "htop" or "top -bn1 | head -5"
+
+# Check disk space
+ssh user@***REDACTED*** "df -h /"
+```
+
+### After scan completes
+```bash
+# Download results to local machine
+scp user@***REDACTED***:/var/www/swiss-web-report/data/results.db ./data/results.db
+
+# Run analysis
+python3 analyze.py data/results.db
+```
+
+### Resume after interruption
+The scanner auto-resumes — just run the same command again. It skips already-scanned domains.
+
+### Disk space
+- VPS has ~5.6 GB free (after journal cleanup)
+- Expected results.db size: ~800MB - 1.2GB
+- Plenty of room
 
 ## Ethics
 
