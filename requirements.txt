@@ -1,0 +1,2 @@
+aiohttp>=3.9
+selectolax>=0.3
