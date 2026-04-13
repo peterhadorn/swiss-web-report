@@ -69,7 +69,7 @@ async def scan_domain(session: aiohttp.ClientSession, domain: str) -> ScanResult
                 result.http_version = f"{resp.version.major}.{resp.version.minor}"
                 result.server = resp.headers.get("Server", "")[:100]
                 result.final_url = str(resp.url)[:200]
-                result.redirects_www = resp.url.host.startswith("www.")
+                result.final_host_is_www = resp.url.host.startswith("www.")
                 host = resp.url.host
                 if resp.url.explicit_port:
                     host = f"{host}:{resp.url.port}"
@@ -106,7 +106,7 @@ async def scan_domain(session: aiohttp.ClientSession, domain: str) -> ScanResult
     elif code in (403, 401, 429, 407):
         result.status_category = "blocked"
     elif code == 404:
-        result.status_category = "parked"
+        result.status_category = "not_found"
     elif code == 499 or code == 408:
         result.status_category = "timeout"
     elif code >= 500:

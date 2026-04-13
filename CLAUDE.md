@@ -41,17 +41,17 @@ python3 analyze.py results.db
 ## Key Design Decisions
 
 - **SQLite, not Postgres** — portable, single-file, no server dependency. 2.5M rows is fine for SQLite.
-- **No waterfall crawler** — plain aiohttp, 5-8 requests per domain, no JS rendering. Speed over depth.
-- **200KB HTML limit** — prevents memory issues on large pages. Homepage only.
+- **No waterfall crawler** — plain aiohttp, 3-30 requests per domain (homepage + sub-pages), no JS rendering. Speed over depth.
+- **200KB HTML limit** — bounded reads at network level. Homepage only for content parsing.
 - **Resume support** — scanner skips already-scanned domains. Safe to restart.
-- **Option B compliance** — directly tries /impressum and /datenschutz URLs instead of parsing homepage links.
+- **Legal compliance** — tries multilingual hardcoded paths first (/impressum, /mentions-legales, /note-legali, etc.), then follows homepage-discovered links with content validation.
 
-## Data Points Per Domain (32 fields)
+## Data Points Per Domain
 
-**Infrastructure:** is_active, status_code, has_ssl, http_version, response_time_ms, server, redirects_www
+**Infrastructure:** is_active, status_code, status_category, has_ssl, http_version, response_time_ms, server, final_host_is_www, final_url
 **CMS:** cms, cms_version, ecommerce
 **SEO Structure:** has_title, title_len, has_meta_desc, meta_desc_len, h1/h2/h3_count, has_canonical, has_viewport, has_hreflang, language, has_og
-**AI Readiness:** has_schema, schema_types, has_llms_txt, llms_txt_score, has_robots, has_sitemap, blocks_ai_bots
+**AI Readiness:** has_schema, schema_types, has_llms_txt, llms_txt_score, has_robots, has_sitemap, blocks_ai_bots, blocks_all_bots
 **Legal Compliance:** has_impressum, impressum_has_email, impressum_has_address, has_datenschutz, has_cookie_banner, cookie_provider
 
 ## VPS Deployment (MANDATORY — read before deploying)

@@ -4,7 +4,7 @@
 
 ## What This Study Measures
 
-We scan every registered .ch domain and collect 32 data points per active website:
+We scan every registered .ch domain and collect 35+ data points per website:
 
 ### AI Readiness
 - **llms.txt** — Does the site provide an AI-readable description? ([llmstxt.org](https://llmstxt.org))

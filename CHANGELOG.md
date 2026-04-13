@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.8.0 — 2026-04-13
+
+### Naming and documentation fixes
+- Renamed `redirects_www` → `final_host_is_www` (was not actually tracking redirects)
+- Renamed status_category `parked` → `not_found` (404 is not parked)
+- Updated CLAUDE.md: field count, requests per domain, compliance methodology
+- Updated README.md: field count
+- Updated status_category comment to include all values
+
 ## v0.7.0 — 2026-04-13
 
 ### Fourth review fixes

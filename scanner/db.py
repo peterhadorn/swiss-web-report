@@ -10,7 +10,7 @@ COLUMNS = [
     "domain TEXT PRIMARY KEY",
     "is_active INTEGER", "status_code INTEGER", "has_ssl INTEGER",
     "http_version TEXT", "response_time_ms INTEGER", "server TEXT",
-    "redirects_www INTEGER", "final_url TEXT",
+    "final_host_is_www INTEGER", "final_url TEXT",
     "cms TEXT", "cms_version TEXT", "ecommerce TEXT",
     "has_title INTEGER", "title_len INTEGER",
     "has_meta_desc INTEGER", "meta_desc_len INTEGER",
