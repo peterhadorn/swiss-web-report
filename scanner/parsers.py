@@ -187,7 +187,7 @@ def parse_robots_txt(text: str) -> dict:
                 rf"user-agent:\s*{bot}.*?(?=user-agent:|\Z)",
                 text_lower, re.DOTALL,
             )
-            if bot_section and "disallow" in bot_section.group():
+            if bot_section and re.search(r"disallow:\s*/", bot_section.group()):
                 ai_bots_blocked.append(bot)
 
     return {
@@ -208,7 +208,7 @@ def _detect_cms(html_lower: str, tree) -> tuple[str, str]:
         # Detect page builders
         if "elementor" in html_lower:
             return "wordpress_elementor", v.group(1) if v else ""
-        if "divi" in html_lower:
+        if "et-divi" in html_lower or "divi-engine" in html_lower or "divi_theme" in html_lower or '"divi"' in html_lower:
             return "wordpress_divi", v.group(1) if v else ""
         return "wordpress", v.group(1) if v else ""
     if "typo3" in gen_lower or "typo3" in html_lower:

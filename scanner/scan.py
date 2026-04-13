@@ -1,6 +1,5 @@
 """Async domain scanner — core scanning logic."""
 
-import asyncio
 import logging
 import time
 
@@ -69,15 +68,16 @@ async def scan_domain(session: aiohttp.ClientSession, domain: str) -> ScanResult
                 result.http_version = f"{resp.version.major}.{resp.version.minor}"
                 result.server = resp.headers.get("Server", "")[:100]
                 result.final_url = str(resp.url)[:200]
-                result.redirects_www = "www." in str(resp.url)
+                result.redirects_www = resp.url.host.startswith("www.")
                 base_url = f"{resp.url.scheme}://{resp.url.host}"
 
                 if resp.status == 200:
-                    html = await resp.text(
-                        encoding=resp.charset or "utf-8",
-                        errors="replace",
-                    )
-                    html = html[:MAX_HTML_BYTES]
+                    raw = await resp.content.read(MAX_HTML_BYTES)
+                    charset = resp.charset or "utf-8"
+                    try:
+                        html = raw.decode(charset, errors="replace")
+                    except (UnicodeDecodeError, LookupError):
+                        html = raw.decode("utf-8", errors="replace")
                     page_data = parse_homepage(html)
                     for key, value in page_data.items():
                         setattr(result, key, value)
@@ -146,7 +146,8 @@ async def _fetch_robots(
     try:
         async with session.get(f"{base_url}/robots.txt") as resp:
             if resp.status == 200:
-                text = await resp.text(errors="replace")
+                raw = await resp.content.read(100_000)
+                text = raw.decode("utf-8", errors="replace")
                 if text.strip() and not text.strip().startswith("<!"):
                     result.has_robots = True
                     data = parse_robots_txt(text)
@@ -164,7 +165,8 @@ async def _fetch_llms_txt(
     try:
         async with session.get(f"{base_url}/llms.txt") as resp:
             if resp.status == 200:
-                text = await resp.text(errors="replace")
+                raw = await resp.content.read(100_000)
+                text = raw.decode("utf-8", errors="replace")
                 if text.strip() and not text.strip().startswith("<!"):
                     result.has_llms_txt = True
                     score = 5  # exists
@@ -194,7 +196,8 @@ async def _fetch_sitemap(
     try:
         async with session.get(f"{base_url}/sitemap.xml") as resp:
             if resp.status == 200:
-                text = await resp.text(errors="replace")
+                raw = await resp.content.read(10_000)
+                text = raw.decode("utf-8", errors="replace")
                 # Must look like XML, not a 404 HTML page
                 if "<?xml" in text[:200] or "<urlset" in text[:500] or "<sitemapindex" in text[:500]:
                     result.has_sitemap = True
@@ -216,8 +219,8 @@ async def _fetch_legal_page(
         try:
             async with session.get(f"{base_url}{path}") as resp:
                 if resp.status == 200:
-                    html = await resp.text(errors="replace")
-                    html = html[:MAX_HTML_BYTES]
+                    raw = await resp.content.read(MAX_HTML_BYTES)
+                    html = raw.decode("utf-8", errors="replace")
                     html_lower = html.lower()
                     if page_type == "impressum":
                         if not _looks_like_impressum(html_lower):
@@ -245,8 +248,8 @@ async def _fetch_legal_page(
         try:
             async with session.get(url) as resp:
                 if resp.status == 200:
-                    html = await resp.text(errors="replace")
-                    html = html[:MAX_HTML_BYTES]
+                    raw = await resp.content.read(MAX_HTML_BYTES)
+                    html = raw.decode("utf-8", errors="replace")
                     html_lower = html.lower()
                     if page_type == "impressum":
                         if not _looks_like_impressum(html_lower):

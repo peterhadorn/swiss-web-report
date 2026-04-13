@@ -18,15 +18,19 @@ from scanner.scan import scan_domain, TIMEOUT, HEADERS
 
 logger = logging.getLogger(__name__)
 
+BATCH_SIZE = 1000  # commit every N results
+REPORT_EVERY = 1000  # log progress every N results
+
 
 async def run(
     domains: list[str],
     db_path: str,
-    concurrency: int = 200,
+    concurrency: int = 100,
     resume: bool = True,
 ):
     """Scan all domains with concurrency limit, write to SQLite."""
     conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA journal_mode=WAL")
     create_table(conn)
 
     if resume:
@@ -43,9 +47,9 @@ async def run(
 
     scanned = 0
     active = 0
+    errors = 0
     start_time = time.monotonic()
 
-    semaphore = asyncio.Semaphore(concurrency)
     connector = aiohttp.TCPConnector(
         limit=concurrency,
         ttl_dns_cache=300,
@@ -58,15 +62,23 @@ async def run(
         headers=HEADERS,
     ) as session:
 
+        semaphore = asyncio.Semaphore(concurrency)
+
         async def scan_one(domain: str):
-            nonlocal scanned, active
+            nonlocal scanned, active, errors
             async with semaphore:
-                result = await scan_domain(session, domain)
-                insert_result(conn, result)
-                scanned += 1
-                if result.is_active:
-                    active += 1
-                if scanned % 1000 == 0:
+                try:
+                    result = await scan_domain(session, domain)
+                    insert_result(conn, result)
+                    scanned += 1
+                    if result.is_active:
+                        active += 1
+                except Exception as exc:
+                    errors += 1
+                    logger.warning(f"Failed {domain}: {exc}")
+                    return
+
+                if scanned % REPORT_EVERY == 0:
                     elapsed = time.monotonic() - start_time
                     rate = scanned / elapsed
                     eta_min = (total - scanned) / rate / 60 if rate > 0 else 0
@@ -78,8 +90,12 @@ async def run(
                     )
                     conn.commit()
 
-        tasks = [scan_one(d) for d in domains]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        # Process in batches to avoid creating millions of coroutines at once
+        for i in range(0, total, BATCH_SIZE):
+            batch = domains[i:i + BATCH_SIZE]
+            tasks = [scan_one(d) for d in batch]
+            await asyncio.gather(*tasks)
+            conn.commit()
 
     conn.commit()
     conn.close()
@@ -87,7 +103,8 @@ async def run(
     elapsed = time.monotonic() - start_time
     logger.info(
         f"Done: {scanned} domains in {elapsed/60:.1f}m. "
-        f"Active: {active} ({active/scanned*100:.1f}%)"
+        f"Active: {active} ({active/scanned*100:.1f}%) "
+        f"Errors: {errors}"
     )
 
 
@@ -111,7 +128,7 @@ def main():
     parser = argparse.ArgumentParser(description="Swiss Web Report Scanner")
     parser.add_argument("--input", required=True, help="Domain list file")
     parser.add_argument("--output", default="results.db", help="SQLite output")
-    parser.add_argument("--concurrency", type=int, default=200)
+    parser.add_argument("--concurrency", type=int, default=100)
     parser.add_argument("--no-resume", action="store_true")
     parser.add_argument("--limit", type=int, help="Limit domains (testing)")
 
