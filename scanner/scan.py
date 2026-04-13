@@ -244,11 +244,13 @@ async def _fetch_legal_page(
             continue
 
     # Phase 2: Try homepage-discovered links (same host only, need content validation)
-    base_host = urlparse(base_url).hostname
+    base_host = urlparse(base_url).hostname or ""
+    base_host_bare = base_host.removeprefix("www.")
     for link in homepage_discovered:
         if link.startswith("http"):
-            link_host = urlparse(link).hostname
-            if link_host and link_host != base_host and not link_host.endswith(f".{base_host}"):
+            link_host = urlparse(link).hostname or ""
+            link_host_bare = link_host.removeprefix("www.")
+            if link_host_bare != base_host_bare and not link_host_bare.endswith(f".{base_host_bare}"):
                 continue  # skip external links (e.g. policies.google.com)
             url = link
         elif link.startswith("/"):
