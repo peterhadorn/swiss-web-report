@@ -87,8 +87,8 @@ def analyze(db_path: str):
 
     # robots.txt/llms.txt for all active (not just scannable)
     _section("ROBOTS & LLMS (all active domains)")
-    _stat(conn, active, "has_robots = 1", "Has robots.txt")
-    _stat(conn, active, "has_llms_txt = 1", "Has llms.txt")
+    _stat(conn, active, "has_robots = 1", "Has robots.txt", scope="is_active = 1")
+    _stat(conn, active, "has_llms_txt = 1", "Has llms.txt", scope="is_active = 1")
 
     _section("LEGAL COMPLIANCE")
     _stat(conn, scannable, "has_impressum = 1", "Has Impressum page")
@@ -128,8 +128,8 @@ def _section(title: str):
     print(f"{'─'*60}")
 
 
-def _stat(conn, denom: int, where: str, label: str):
-    n = _c(conn, where)
+def _stat(conn, denom: int, where: str, label: str, scope: str = "status_category = 'scannable'"):
+    n = _c(conn, f"{scope} AND {where}")
     print(f"  {label}: {n:,} ({n/denom*100:.1f}%)")
 
 
