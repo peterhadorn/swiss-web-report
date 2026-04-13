@@ -130,9 +130,9 @@ The scanner auto-resumes — just run the same command again. It skips already-s
 
 - No domain names published in results
 - No login attempts or form submissions
-- Only homepage + 4 specific paths (robots.txt, llms.txt, impressum, datenschutz)
-- User-Agent identifies the project: `SwissWebReport/1.0 (research; webevolve.ch/studie/)`
-- Respects robots.txt (reads it, doesn't violate it)
+- Only homepage + specific paths (robots.txt, llms.txt, sitemap.xml, impressum/datenschutz variants)
+- Browser User-Agent (standard Chrome UA)
+- Reads robots.txt for data collection (AI bot blocking stats), does not honor Disallow for scanning
 
 ## Related
 

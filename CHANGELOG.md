@@ -1,8 +1,18 @@
 # Changelog
 
+## v0.4.0 — 2026-04-13
+
+### Code review fixes
+- analyze.py: use `status_category = 'scannable'` as denominator for content metrics (was `is_active`)
+- analyze.py: add status category breakdown, fix None crash on avg response time
+- Legal links: restrict to same host (no more counting policies.google.com as target's privacy page)
+- Datenschutz validation: require 2+ keywords (was 1, "cookies" alone caused false positives)
+- robots.txt: proper group-based parsing for stacked User-agent lines
+- README/CLAUDE.md: updated methodology (requests per domain, UA, robots.txt stance)
+
 ## v0.3.0 — 2026-04-13
 
-### Scale & reliability fixes (code review)
+### Scale & reliability fixes
 - Batched processing: process 1000 domains at a time instead of creating 2.46M coroutines
 - SQLite WAL mode: better write performance, commit every batch
 - Bounded reads: `resp.content.read(N)` instead of unbounded `resp.text()` to prevent memory spikes

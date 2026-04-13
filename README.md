@@ -34,9 +34,9 @@ We scan every registered .ch domain and collect 32 data points per active websit
 |---|---|
 | **Data source** | Official .ch zonefile from [SWITCH](https://www.switch.ch/open-data/) |
 | **Domains** | 2,459,127 unique .ch domains |
-| **Requests per domain** | 5-8 (homepage, robots.txt, llms.txt, /impressum, /datenschutz) |
-| **Scanner** | Async Python (aiohttp), ~200 concurrent connections |
-| **Runtime** | ~10-14 hours (single pass) |
+| **Requests per domain** | 3-30 (homepage, robots.txt, llms.txt, sitemap.xml, up to 12 impressum paths, up to 15 datenschutz paths — stops at first match) |
+| **Scanner** | Async Python (aiohttp), ~100 concurrent connections |
+| **Runtime** | ~30-38 hours (single pass) |
 | **Storage** | SQLite |
 | **Ethics** | No domain names published. No login attempts. No crawling beyond homepage + legal pages. |
 

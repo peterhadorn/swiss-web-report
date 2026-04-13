@@ -2,6 +2,7 @@
 
 import logging
 import time
+from urllib.parse import urlparse
 
 import aiohttp
 
@@ -237,9 +238,13 @@ async def _fetch_legal_page(
         except Exception:
             continue
 
-    # Phase 2: Try homepage-discovered links (need content validation)
+    # Phase 2: Try homepage-discovered links (same host only, need content validation)
+    base_host = urlparse(base_url).hostname
     for link in homepage_discovered:
         if link.startswith("http"):
+            link_host = urlparse(link).hostname
+            if link_host and link_host != base_host and not link_host.endswith(f".{base_host}"):
+                continue  # skip external links (e.g. policies.google.com)
             url = link
         elif link.startswith("/"):
             url = f"{base_url}{link}"
@@ -279,10 +284,13 @@ def _looks_like_impressum(html_lower: str) -> bool:
 
 def _looks_like_datenschutz(html_lower: str) -> bool:
     """Check if page content actually looks like a privacy page."""
+    # Require at least 2 keywords to avoid false positives from catch-all 200s
     keywords = [
-        "datenschutz", "privacy", "protection des données",
-        "protezione dei dati", "personendaten", "personenbezogen",
-        "cookies", "datenbearbeitung", "données personnelles",
-        "data protection", "confidentialité",
+        "datenschutz", "privacy policy", "privacy statement",
+        "protection des données", "protezione dei dati",
+        "personendaten", "personenbezogen", "datenbearbeitung",
+        "données personnelles", "data protection", "confidentialité",
+        "datenerhebung", "personenbezogene daten",
     ]
-    return any(kw in html_lower for kw in keywords)
+    matches = sum(1 for kw in keywords if kw in html_lower)
+    return matches >= 2

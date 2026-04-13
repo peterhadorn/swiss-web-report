@@ -174,21 +174,43 @@ def parse_robots_txt(text: str) -> dict:
             if not has_allow:
                 blocks_all = True
 
-    ai_bots_blocked = []
-    ai_bots = [
+    # Parse robots.txt into groups: each group has user-agents + rules
+    # Handles stacked User-agent lines (e.g. GPTBot + ClaudeBot sharing Disallow)
+    groups = []
+    current_agents = []
+    current_rules = []
+    for line in text_lower.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("user-agent:"):
+            agent = line.split(":", 1)[1].strip()
+            if current_rules:
+                # New agent after rules = new group
+                groups.append((current_agents, current_rules))
+                current_agents = [agent]
+                current_rules = []
+            else:
+                # Stacked agent (no rules yet)
+                current_agents.append(agent)
+        elif line.startswith("disallow:") or line.startswith("allow:"):
+            current_rules.append(line)
+        # ignore sitemap and other directives
+    if current_agents:
+        groups.append((current_agents, current_rules))
+
+    ai_bots = {
         "gptbot", "claudebot", "ccbot", "google-extended",
         "anthropic", "bytespider", "chatgpt-user",
         "amazonbot", "cohere-ai", "meta-externalagent",
-    ]
-    for bot in ai_bots:
-        if bot in text_lower:
-            # Check if actually disallowed
-            bot_section = re.search(
-                rf"user-agent:\s*{bot}.*?(?=user-agent:|\Z)",
-                text_lower, re.DOTALL,
-            )
-            if bot_section and re.search(r"disallow:\s*/", bot_section.group()):
-                ai_bots_blocked.append(bot)
+    }
+    ai_bots_blocked = []
+    for agents, rules in groups:
+        has_disallow = any(re.match(r"disallow:\s*/", r) for r in rules)
+        if has_disallow:
+            for agent in agents:
+                if agent in ai_bots:
+                    ai_bots_blocked.append(agent)
 
     return {
         "has_sitemap": has_sitemap,
