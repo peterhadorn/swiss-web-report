@@ -166,8 +166,8 @@ def parse_robots_txt(text: str) -> dict:
     current_agents = []
     current_rules = []
     for line in text_lower.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
+        line = line.split("#", 1)[0].strip()  # strip inline comments
+        if not line:
             continue
         if line.startswith("user-agent:"):
             agent = line.split(":", 1)[1].strip()
@@ -201,9 +201,9 @@ def parse_robots_txt(text: str) -> dict:
 
     ai_bots_blocked = []
     for agents, rules in groups:
-        # Require "Disallow: /" (full site block), not partial like "Disallow: /private"
         has_full_block = any(re.match(r"disallow:\s*/\s*$", r) for r in rules)
-        if has_full_block:
+        has_allow = any(re.match(r"allow:\s*/\S", r) for r in rules)
+        if has_full_block and not has_allow:
             for agent in agents:
                 if agent in ai_bots:
                     ai_bots_blocked.append(agent)
