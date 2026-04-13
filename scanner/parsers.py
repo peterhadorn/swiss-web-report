@@ -158,16 +158,18 @@ def parse_robots_txt(text: str) -> dict:
     """Extract signals from robots.txt."""
     text_lower = text.lower()
 
-    has_sitemap = "sitemap:" in text_lower
-
     # Parse robots.txt into groups: each group has user-agents + rules
     # Handles stacked User-agent lines (e.g. GPTBot + ClaudeBot sharing Disallow)
+    has_sitemap = False
     groups = []
     current_agents = []
     current_rules = []
     for line in text_lower.splitlines():
-        line = line.split("#", 1)[0].strip()  # strip inline comments
+        line = line.split("#", 1)[0].strip()  # strip inline comments first
         if not line:
+            continue
+        if line.startswith("sitemap:"):
+            has_sitemap = True
             continue
         if line.startswith("user-agent:"):
             agent = line.split(":", 1)[1].strip()
@@ -191,19 +193,20 @@ def parse_robots_txt(text: str) -> dict:
         "amazonbot", "cohere-ai", "meta-externalagent",
     }
     # Check blocks_all_bots from parsed groups (handles stacked agents)
+    # Only "Allow: /" (exact root) cancels "Disallow: /", not "Allow: /assets/"
     blocks_all = False
     for agents, rules in groups:
         if "*" in agents:
             has_full_block = any(re.match(r"disallow:\s*/\s*$", r) for r in rules)
-            has_allow = any(re.match(r"allow:\s*/", r) for r in rules)
-            if has_full_block and not has_allow:
+            has_root_allow = any(re.match(r"allow:\s*/\s*$", r) for r in rules)
+            if has_full_block and not has_root_allow:
                 blocks_all = True
 
     ai_bots_blocked = set()
     for agents, rules in groups:
         has_full_block = any(re.match(r"disallow:\s*/\s*$", r) for r in rules)
-        has_allow = any(re.match(r"allow:\s*/", r) for r in rules)
-        if has_full_block and not has_allow:
+        has_root_allow = any(re.match(r"allow:\s*/\s*$", r) for r in rules)
+        if has_full_block and not has_root_allow:
             for agent in agents:
                 if agent in ai_bots:
                     ai_bots_blocked.add(agent)

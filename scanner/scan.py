@@ -1,8 +1,9 @@
 """Async domain scanner — core scanning logic."""
 
 import logging
+import re
 import time
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import aiohttp
 
@@ -130,14 +131,14 @@ async def scan_domain(session: aiohttp.ClientSession, domain: str) -> ScanResult
     # --- 5. Impressum ---
     homepage_links = getattr(result, "_homepage_legal_links", {})
     await _fetch_legal_page(
-        session, base_url, IMPRESSUM_PATHS,
+        session, base_url, result.final_url, IMPRESSUM_PATHS,
         homepage_links.get("impressum", []),
         "impressum", result,
     )
 
     # --- 6. Datenschutz ---
     await _fetch_legal_page(
-        session, base_url, DATENSCHUTZ_PATHS,
+        session, base_url, result.final_url, DATENSCHUTZ_PATHS,
         homepage_links.get("datenschutz", []),
         "datenschutz", result,
     )
@@ -214,6 +215,7 @@ async def _fetch_sitemap(
 async def _fetch_legal_page(
     session: aiohttp.ClientSession,
     base_url: str,
+    homepage_url: str,
     paths: list[str],
     homepage_discovered: list[str],
     page_type: str,
@@ -244,19 +246,31 @@ async def _fetch_legal_page(
             continue
 
     # Phase 2: Try homepage-discovered links (same host only, need content validation)
+    # Normalize, dedupe, and cap to avoid excessive requests
     base_host = urlparse(base_url).hostname or ""
     base_host_bare = base_host.removeprefix("www.")
+    seen_urls = set()
+    max_discovered = 5  # cap per page type to stay within request budget
+    tried = 0
     for link in homepage_discovered:
-        if link.startswith("http"):
-            link_host = urlparse(link).hostname or ""
-            link_host_bare = link_host.removeprefix("www.")
-            if link_host_bare != base_host_bare and not link_host_bare.endswith(f".{base_host_bare}"):
-                continue  # skip external links (e.g. policies.google.com)
-            url = link
-        elif link.startswith("/"):
-            url = f"{base_url}{link}"
-        else:
+        if tried >= max_discovered:
+            break
+        # Resolve against final homepage URL (e.g. https://example.ch/de/)
+        # so relative links like href="impressum" become /de/impressum
+        url = urljoin(homepage_url, link)
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
             continue
+        # Dedupe by normalized URL (scheme + host + path)
+        normalized = f"{parsed.scheme}://{parsed.hostname}{parsed.path}"
+        if normalized in seen_urls:
+            continue
+        seen_urls.add(normalized)
+        # Same-host check
+        link_host_bare = (parsed.hostname or "").removeprefix("www.")
+        if link_host_bare != base_host_bare and not link_host_bare.endswith(f".{base_host_bare}"):
+            continue
+        tried += 1
         try:
             async with session.get(url) as resp:
                 if resp.status == 200:
@@ -289,7 +303,6 @@ def _looks_like_impressum(html_lower: str) -> bool:
     has_label = any(kw in html_lower for kw in labels)
 
     # Contact signals
-    import re
     has_email = "mailto:" in html_lower or bool(re.search(r'[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}', html_lower))
     has_address = bool(re.search(r'\b(ch-)?\d{4}\s+[a-zäöüéèê]', html_lower))
 

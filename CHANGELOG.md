@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.10.0 — 2026-04-14
+
+### Sixth review fixes
+- **Schema validation**: fail fast on resume if DB columns don't match current schema
+- **Legal link resolution**: resolve discovered links against `final_url` (not origin) via `urljoin`, fixing detection on path-based multilingual sites (e.g. `/de/impressum`)
+- **Relative links**: `href="impressum"` and `href="de/datenschutz"` now handled (was only absolute/root-relative)
+- **Request budget**: deduplicate and cap discovered legal links at 5 per page type
+- **Robots Allow**: only `Allow: /` (exact root) cancels `Disallow: /`, not `Allow: /assets/`
+- **Sitemap comments**: `# Sitemap:` lines no longer falsely set `has_sitemap`
+- Move inline `import re` to top of `scanner/scan.py`
+
 ## v0.9.0 — 2026-04-13
 
 ### Fifth review fixes

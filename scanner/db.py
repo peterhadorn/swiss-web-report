@@ -29,15 +29,39 @@ COLUMNS = [
     "scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
 ]
 
+# Expected column names (without type info) for schema validation
+EXPECTED_COLUMNS = {col.split()[0] for col in COLUMNS}
+
 JSON_FIELDS = {"schema_types", "blocks_ai_bots"}
 
 
+def _get_existing_columns(conn: sqlite3.Connection) -> set[str]:
+    """Get column names from existing scan_results table."""
+    cursor = conn.execute("PRAGMA table_info(scan_results)")
+    return {row[1] for row in cursor}
+
+
 def create_table(conn: sqlite3.Connection):
-    """Create results table if not exists."""
+    """Create results table if not exists, fail fast on schema mismatch."""
     conn.execute(
         f"CREATE TABLE IF NOT EXISTS scan_results ({', '.join(COLUMNS)})"
     )
     conn.commit()
+
+    # Validate schema matches — catches stale DBs from before column changes
+    existing = _get_existing_columns(conn)
+    if existing != EXPECTED_COLUMNS:
+        missing = EXPECTED_COLUMNS - existing
+        extra = existing - EXPECTED_COLUMNS
+        parts = []
+        if missing:
+            parts.append(f"missing columns: {', '.join(sorted(missing))}")
+        if extra:
+            parts.append(f"unexpected columns: {', '.join(sorted(extra))}")
+        raise RuntimeError(
+            f"Schema mismatch in scan_results ({'; '.join(parts)}). "
+            f"Back up the DB and re-create it, or migrate manually."
+        )
 
 
 def get_done_domains(conn: sqlite3.Connection) -> set[str]:
