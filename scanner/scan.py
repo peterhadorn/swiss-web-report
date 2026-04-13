@@ -84,7 +84,9 @@ async def scan_domain(session: aiohttp.ClientSession, domain: str) -> ScanResult
                         setattr(result, key, value)
                     # Extract legal page links from homepage for fallback
                     result._homepage_legal_links = find_legal_links(html)
-                break  # success, don't try http fallback
+                if resp.status == 200:
+                    break  # success, don't try http fallback
+                # Non-200 HTTPS: try HTTP as fallback
         except Exception as exc:
             if scheme == "http":
                 result.error = str(exc)[:200]
@@ -276,10 +278,12 @@ def _looks_like_impressum(html_lower: str) -> bool:
     """Check if page content actually looks like an impressum."""
     keywords = [
         "impressum", "imprint", "legal notice", "mentions légales",
-        "note legali", "handelsregister", "uid", "mwst", "ust-id",
-        "firmensitz", "geschäftsführ",
+        "note legali", "handelsregister", "firmensitz",
+        "geschäftsführ", "verantwortlich", "angaben gemäß",
+        "inhaltlich verantwortlich", "société", "siège social",
     ]
-    return any(kw in html_lower for kw in keywords)
+    matches = sum(1 for kw in keywords if kw in html_lower)
+    return matches >= 2
 
 
 def _looks_like_datenschutz(html_lower: str) -> bool:
