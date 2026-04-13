@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.0 — 2026-04-13
+
+### Third review fixes
+- HTTPS non-200 now falls through to HTTP (was breaking on 403/500 HTTPS)
+- Impressum validation requires 2+ keywords (was 1, caught catch-all pages)
+
 ## v0.5.0 — 2026-04-13
 
 ### Second review fixes
