@@ -1,0 +1,25 @@
+# Changelog
+
+## v0.2.0 — 2026-04-13
+
+### Scanner accuracy improvements
+- Impressum/Datenschutz: multilingual paths (DE/FR/IT/EN) + homepage link discovery with content validation
+- Schema: detect microdata and RDFa in addition to JSON-LD
+- Sitemap: direct /sitemap.xml check, not just robots.txt reference
+- Cookie banner: 17 providers (added CookieYes, Iubenda, Didomi, Quantcast, TrustArc, Axeptio, Tarteaucitron)
+- CMS: added Neos, Sitecore, HubSpot, Strato detection
+- AI bots: added Amazonbot, Cohere-AI, Meta-ExternalAgent; new `blocks_all_bots` field
+- Email detection: plain text emails in addition to mailto: links
+- Address detection: requires postal code + city name (no more false positives from years/prices)
+- Status classification: `status_category` field (scannable/blocked/error/parked/timeout/inactive)
+- Browser User-Agent to reduce false 403 blocks
+- Timeout bumped to 15s
+- robots.txt and llms.txt checked regardless of homepage status code
+
+## v0.1.0 — 2026-04-12
+
+- Initial scanner: 32 data points per domain
+- Async scanning with aiohttp, SQLite storage
+- Resume support, 200KB HTML limit
+- CMS detection (13 platforms), cookie banner detection (10 providers)
+- SEO structure, AI readiness, legal compliance checks

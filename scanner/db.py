@@ -20,6 +20,8 @@ COLUMNS = [
     "has_schema INTEGER", "schema_types TEXT",
     "has_llms_txt INTEGER", "llms_txt_score INTEGER",
     "has_robots INTEGER", "has_sitemap INTEGER", "blocks_ai_bots TEXT",
+    "blocks_all_bots INTEGER",
+    "status_category TEXT",
     "has_impressum INTEGER", "impressum_has_email INTEGER",
     "impressum_has_address INTEGER", "has_datenschutz INTEGER",
     "has_cookie_banner INTEGER", "cookie_provider TEXT",
@@ -47,6 +49,8 @@ def get_done_domains(conn: sqlite3.Connection) -> set[str]:
 def insert_result(conn: sqlite3.Connection, result: ScanResult):
     """Insert or replace a scan result."""
     d = asdict(result)
+    # Remove private/temporary fields
+    d = {k: v for k, v in d.items() if not k.startswith("_")}
     for key in JSON_FIELDS:
         if isinstance(d[key], (list, dict)):
             d[key] = json.dumps(d[key])

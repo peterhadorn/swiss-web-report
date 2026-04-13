@@ -44,6 +44,7 @@ class ScanResult:
     has_robots: bool = False
     has_sitemap: bool = False
     blocks_ai_bots: list = field(default_factory=list)
+    blocks_all_bots: bool = False
 
     # Legal Compliance
     has_impressum: bool = False
@@ -52,6 +53,9 @@ class ScanResult:
     has_datenschutz: bool = False
     has_cookie_banner: bool = False
     cookie_provider: str = ""
+
+    # Classification
+    status_category: str = ""  # scannable, blocked, error, parked, timeout, inactive
 
     # Error
     error: str = ""

@@ -7,19 +7,47 @@ import time
 import aiohttp
 
 from scanner.models import ScanResult
-from scanner.parsers import parse_homepage, parse_impressum, parse_robots_txt
+from scanner.parsers import (
+    parse_homepage, parse_impressum, parse_robots_txt, find_legal_links,
+)
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT = aiohttp.ClientTimeout(total=10, connect=5)
-HEADERS = {"User-Agent": "SwissWebReport/1.0 (research; webevolve.ch/studie/)"}
+TIMEOUT = aiohttp.ClientTimeout(total=15, connect=5)
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "de-CH,de;q=0.9,en;q=0.8",
+}
 MAX_HTML_BYTES = 200_000  # 200KB max per page
 
-IMPRESSUM_PATHS = ["/impressum", "/impressum/", "/impressum.html"]
+IMPRESSUM_PATHS = [
+    # German
+    "/impressum", "/impressum/",
+    # French
+    "/mentions-legales", "/mentions-legales/",
+    "/informations-legales",
+    # Italian
+    "/note-legali", "/note-legali/",
+    # English
+    "/legal-notice", "/legal-notice/",
+    "/imprint", "/imprint/",
+]
 DATENSCHUTZ_PATHS = [
+    # German
     "/datenschutz", "/datenschutz/",
     "/datenschutzerklaerung", "/datenschutzerklaerung/",
-    "/privacy", "/privacy-policy",
+    # French
+    "/politique-de-confidentialite",
+    "/protection-des-donnees",
+    "/confidentialite",
+    # Italian
+    "/protezione-dati",
+    "/informativa-privacy",
+    # English
+    "/privacy", "/privacy/",
+    "/privacy-policy", "/privacy-policy/",
+    "/data-protection",
 ]
 
 
@@ -53,6 +81,8 @@ async def scan_domain(session: aiohttp.ClientSession, domain: str) -> ScanResult
                     page_data = parse_homepage(html)
                     for key, value in page_data.items():
                         setattr(result, key, value)
+                    # Extract legal page links from homepage for fallback
+                    result._homepage_legal_links = find_legal_links(html)
                 break  # success, don't try http fallback
         except Exception as exc:
             if scheme == "http":
@@ -60,22 +90,50 @@ async def scan_domain(session: aiohttp.ClientSession, domain: str) -> ScanResult
             continue
 
     if not result.is_active:
+        result.status_category = "inactive"
         return result
 
-    # --- 2. robots.txt ---
-    await _fetch_robots(session, base_url, result)
+    # Classify based on status code
+    code = result.status_code
+    if code == 200:
+        result.status_category = "scannable"
+    elif code in (403, 401, 429, 407):
+        result.status_category = "blocked"
+    elif code == 404:
+        result.status_category = "parked"
+    elif code == 499 or code == 408:
+        result.status_category = "timeout"
+    elif code >= 500:
+        result.status_category = "error"
+    elif code >= 300:
+        result.status_category = "redirect"
+    else:
+        result.status_category = "other"
 
-    # --- 3. llms.txt ---
-    await _fetch_llms_txt(session, base_url, result)
+    # Always check robots.txt and llms.txt regardless of status code
+    if base_url:
+        await _fetch_robots(session, base_url, result)
+        await _fetch_llms_txt(session, base_url, result)
 
-    # --- 4. Impressum ---
+    if result.status_code != 200:
+        return result
+
+    # --- 4. Sitemap (direct check) ---
+    await _fetch_sitemap(session, base_url, result)
+
+    # --- 5. Impressum ---
+    homepage_links = getattr(result, "_homepage_legal_links", {})
     await _fetch_legal_page(
-        session, base_url, IMPRESSUM_PATHS, "impressum", result
+        session, base_url, IMPRESSUM_PATHS,
+        homepage_links.get("impressum", []),
+        "impressum", result,
     )
 
-    # --- 5. Datenschutz ---
+    # --- 6. Datenschutz ---
     await _fetch_legal_page(
-        session, base_url, DATENSCHUTZ_PATHS, "datenschutz", result
+        session, base_url, DATENSCHUTZ_PATHS,
+        homepage_links.get("datenschutz", []),
+        "datenschutz", result,
     )
 
     return result
@@ -94,6 +152,7 @@ async def _fetch_robots(
                     data = parse_robots_txt(text)
                     result.has_sitemap = data["has_sitemap"]
                     result.blocks_ai_bots = data["blocks_ai_bots"]
+                    result.blocks_all_bots = data["blocks_all_bots"]
     except Exception:
         pass
 
@@ -126,27 +185,101 @@ async def _fetch_llms_txt(
         pass
 
 
+async def _fetch_sitemap(
+    session: aiohttp.ClientSession, base_url: str, result: ScanResult
+):
+    """Directly check /sitemap.xml if not already found via robots.txt."""
+    if result.has_sitemap:
+        return
+    try:
+        async with session.get(f"{base_url}/sitemap.xml") as resp:
+            if resp.status == 200:
+                text = await resp.text(errors="replace")
+                # Must look like XML, not a 404 HTML page
+                if "<?xml" in text[:200] or "<urlset" in text[:500] or "<sitemapindex" in text[:500]:
+                    result.has_sitemap = True
+    except Exception:
+        pass
+
+
 async def _fetch_legal_page(
     session: aiohttp.ClientSession,
     base_url: str,
     paths: list[str],
+    homepage_discovered: list[str],
     page_type: str,
     result: ScanResult,
 ):
-    """Try multiple URL paths for a legal page (impressum or datenschutz)."""
+    """Try hardcoded paths, then homepage-discovered links for legal pages."""
+    # Phase 1: Try hardcoded paths (light content validation to filter catch-all 200s)
     for path in paths:
         try:
             async with session.get(f"{base_url}{path}") as resp:
                 if resp.status == 200:
+                    html = await resp.text(errors="replace")
+                    html = html[:MAX_HTML_BYTES]
+                    html_lower = html.lower()
                     if page_type == "impressum":
+                        if not _looks_like_impressum(html_lower):
+                            continue
                         result.has_impressum = True
-                        html = await resp.text(errors="replace")
-                        html = html[:MAX_HTML_BYTES]
                         data = parse_impressum(html)
                         result.impressum_has_email = data["impressum_has_email"]
                         result.impressum_has_address = data["impressum_has_address"]
                     else:
+                        if not _looks_like_datenschutz(html_lower):
+                            continue
                         result.has_datenschutz = True
-                    return  # found it, stop trying other paths
+                    return  # found it
         except Exception:
             continue
+
+    # Phase 2: Try homepage-discovered links (need content validation)
+    for link in homepage_discovered:
+        if link.startswith("http"):
+            url = link
+        elif link.startswith("/"):
+            url = f"{base_url}{link}"
+        else:
+            continue
+        try:
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    html = await resp.text(errors="replace")
+                    html = html[:MAX_HTML_BYTES]
+                    html_lower = html.lower()
+                    if page_type == "impressum":
+                        if not _looks_like_impressum(html_lower):
+                            continue
+                        result.has_impressum = True
+                        data = parse_impressum(html)
+                        result.impressum_has_email = data["impressum_has_email"]
+                        result.impressum_has_address = data["impressum_has_address"]
+                    else:
+                        if not _looks_like_datenschutz(html_lower):
+                            continue
+                        result.has_datenschutz = True
+                    return  # found it
+        except Exception:
+            continue
+
+
+def _looks_like_impressum(html_lower: str) -> bool:
+    """Check if page content actually looks like an impressum."""
+    keywords = [
+        "impressum", "imprint", "legal notice", "mentions légales",
+        "note legali", "handelsregister", "uid", "mwst", "ust-id",
+        "firmensitz", "geschäftsführ",
+    ]
+    return any(kw in html_lower for kw in keywords)
+
+
+def _looks_like_datenschutz(html_lower: str) -> bool:
+    """Check if page content actually looks like a privacy page."""
+    keywords = [
+        "datenschutz", "privacy", "protection des données",
+        "protezione dei dati", "personendaten", "personenbezogen",
+        "cookies", "datenbearbeitung", "données personnelles",
+        "data protection", "confidentialité",
+    ]
+    return any(kw in html_lower for kw in keywords)
