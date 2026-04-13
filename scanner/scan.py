@@ -70,7 +70,10 @@ async def scan_domain(session: aiohttp.ClientSession, domain: str) -> ScanResult
                 result.server = resp.headers.get("Server", "")[:100]
                 result.final_url = str(resp.url)[:200]
                 result.redirects_www = resp.url.host.startswith("www.")
-                base_url = f"{resp.url.scheme}://{resp.url.host}"
+                host = resp.url.host
+                if resp.url.explicit_port:
+                    host = f"{host}:{resp.url.port}"
+                base_url = f"{resp.url.scheme}://{host}"
 
                 if resp.status == 200:
                     raw = await resp.content.read(MAX_HTML_BYTES)
@@ -276,13 +279,28 @@ async def _fetch_legal_page(
 
 def _looks_like_impressum(html_lower: str) -> bool:
     """Check if page content actually looks like an impressum."""
-    keywords = [
+    # Primary labels — if one of these appears, just need one contact signal too
+    labels = [
         "impressum", "imprint", "legal notice", "mentions légales",
-        "note legali", "handelsregister", "firmensitz",
-        "geschäftsführ", "verantwortlich", "angaben gemäß",
-        "inhaltlich verantwortlich", "société", "siège social",
+        "note legali",
     ]
-    matches = sum(1 for kw in keywords if kw in html_lower)
+    has_label = any(kw in html_lower for kw in labels)
+
+    # Contact signals
+    import re
+    has_email = "mailto:" in html_lower or bool(re.search(r'[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}', html_lower))
+    has_address = bool(re.search(r'\b(ch-)?\d{4}\s+[a-zäöüéèê]', html_lower))
+
+    if has_label and (has_email or has_address):
+        return True
+
+    # Fallback: 2+ legal-specific keywords (for pages without standard label)
+    legal_keywords = [
+        "handelsregister", "firmensitz", "geschäftsführ",
+        "verantwortlich", "angaben gemäß", "inhaltlich verantwortlich",
+        "société", "siège social",
+    ]
+    matches = sum(1 for kw in legal_keywords if kw in html_lower)
     return matches >= 2
 
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.7.0 — 2026-04-13
+
+### Fourth review fixes
+- Impressum: label + contact signal (email/address) is now sufficient (was rejecting valid minimal pages)
+- robots.txt: strip inline comments before parsing (fixes missed blocks like `Disallow: / # no crawling`)
+- AI bot blocking: apply allow-aware logic consistently (same as wildcard groups)
+- base_url preserves explicit ports from redirected URLs
+
 ## v0.6.0 — 2026-04-13
 
 ### Third review fixes
