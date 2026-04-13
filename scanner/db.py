@@ -43,7 +43,7 @@ def create_table(conn: sqlite3.Connection):
 def get_done_domains(conn: sqlite3.Connection) -> set[str]:
     """Get set of already-scanned domains for resume support."""
     cursor = conn.execute("SELECT domain FROM scan_results")
-    return {row[0] for row in cursor.fetchall()}
+    return {row[0] for row in cursor}
 
 
 def insert_result(conn: sqlite3.Connection, result: ScanResult):

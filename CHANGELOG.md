@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.0 — 2026-04-13
+
+### Scale & reliability fixes (code review)
+- Batched processing: process 1000 domains at a time instead of creating 2.46M coroutines
+- SQLite WAL mode: better write performance, commit every batch
+- Bounded reads: `resp.content.read(N)` instead of unbounded `resp.text()` to prevent memory spikes
+- Error logging: failed domains logged instead of silently swallowed
+- Resume: iterate cursor instead of `fetchall()` for 2.46M rows
+- CMS: fixed "divi" false positive matching "individual", "division" etc.
+- robots.txt: `Disallow:` (empty = allow) no longer counted as blocking
+- `redirects_www`: checks hostname only, not full URL
+
 ## v0.2.0 — 2026-04-13
 
 ### Scanner accuracy improvements
