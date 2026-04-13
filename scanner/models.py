@@ -8,13 +8,13 @@ class ScanResult:
     domain: str
 
     # Infrastructure
-    is_active: bool = False
+    is_active: bool = False  # True if server returned any HTTP response
     status_code: int = 0
     has_ssl: bool = False
     http_version: str = ""
     response_time_ms: int = 0
     server: str = ""
-    redirects_www: bool = False
+    final_host_is_www: bool = False
     final_url: str = ""
 
     # CMS & Tech
@@ -55,7 +55,7 @@ class ScanResult:
     cookie_provider: str = ""
 
     # Classification
-    status_category: str = ""  # scannable, blocked, error, parked, timeout, inactive
+    status_category: str = ""  # scannable, blocked, not_found, error, timeout, redirect, inactive, other
 
     # Error
     error: str = ""
