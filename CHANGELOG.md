@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.5.0 — 2026-04-13
+
+### Second review fixes
+- analyze.py: `_stat()` now scopes numerator to match denominator (prevents >100% percentages)
+- AI bot blocking: require `Disallow: /` (full block), not partial disallows
+- `blocks_all_bots`: derived from parsed groups (handles stacked wildcard agents)
+
 ## v0.4.0 — 2026-04-13
 
 ### Code review fixes

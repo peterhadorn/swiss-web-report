@@ -160,20 +160,6 @@ def parse_robots_txt(text: str) -> dict:
 
     has_sitemap = "sitemap:" in text_lower
 
-    # Check if site blocks ALL bots via User-agent: *
-    blocks_all = False
-    wildcard_section = re.search(
-        r"user-agent:\s*\*.*?(?=user-agent:|\Z)",
-        text_lower, re.DOTALL,
-    )
-    if wildcard_section:
-        section = wildcard_section.group()
-        # Blocks all if "Disallow: /" without any "Allow:" that opens things up
-        if re.search(r"disallow:\s*/\s*$", section, re.MULTILINE):
-            has_allow = bool(re.search(r"allow:\s*/\S", section))
-            if not has_allow:
-                blocks_all = True
-
     # Parse robots.txt into groups: each group has user-agents + rules
     # Handles stacked User-agent lines (e.g. GPTBot + ClaudeBot sharing Disallow)
     groups = []
@@ -204,10 +190,20 @@ def parse_robots_txt(text: str) -> dict:
         "anthropic", "bytespider", "chatgpt-user",
         "amazonbot", "cohere-ai", "meta-externalagent",
     }
+    # Check blocks_all_bots from parsed groups (handles stacked agents)
+    blocks_all = False
+    for agents, rules in groups:
+        if "*" in agents:
+            has_full_block = any(re.match(r"disallow:\s*/\s*$", r) for r in rules)
+            has_allow = any(re.match(r"allow:\s*/\S", r) for r in rules)
+            if has_full_block and not has_allow:
+                blocks_all = True
+
     ai_bots_blocked = []
     for agents, rules in groups:
-        has_disallow = any(re.match(r"disallow:\s*/", r) for r in rules)
-        if has_disallow:
+        # Require "Disallow: /" (full site block), not partial like "Disallow: /private"
+        has_full_block = any(re.match(r"disallow:\s*/\s*$", r) for r in rules)
+        if has_full_block:
             for agent in agents:
                 if agent in ai_bots:
                     ai_bots_blocked.append(agent)
