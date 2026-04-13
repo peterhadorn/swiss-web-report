@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.0 — 2026-04-13
+
+### Fifth review fixes
+- `Allow: /` now cancels a `Disallow: /` block (was only matching `Allow: /path`)
+- www vs apex host normalization for legal link comparison
+- Canonical/viewport detection via selectolax CSS selectors (catches unquoted attributes)
+- Deduplicate AI bot names from duplicate robots.txt groups
+
 ## v0.8.0 — 2026-04-13
 
 ### Naming and documentation fixes

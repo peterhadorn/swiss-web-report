@@ -43,8 +43,8 @@ def parse_homepage(html: str) -> dict:
     r["h1_count"] = len(tree.css("h1"))
     r["h2_count"] = len(tree.css("h2"))
     r["h3_count"] = len(tree.css("h3"))
-    r["has_canonical"] = 'rel="canonical"' in html_lower or "rel='canonical'" in html_lower
-    r["has_viewport"] = 'name="viewport"' in html_lower
+    r["has_canonical"] = tree.css_first('link[rel="canonical"], link[rel=canonical]') is not None
+    r["has_viewport"] = tree.css_first('meta[name="viewport"], meta[name=viewport]') is not None
     r["has_hreflang"] = "hreflang" in html_lower
     r["has_og"] = 'property="og:' in html_lower or "property='og:" in html_lower
 
@@ -195,22 +195,22 @@ def parse_robots_txt(text: str) -> dict:
     for agents, rules in groups:
         if "*" in agents:
             has_full_block = any(re.match(r"disallow:\s*/\s*$", r) for r in rules)
-            has_allow = any(re.match(r"allow:\s*/\S", r) for r in rules)
+            has_allow = any(re.match(r"allow:\s*/", r) for r in rules)
             if has_full_block and not has_allow:
                 blocks_all = True
 
-    ai_bots_blocked = []
+    ai_bots_blocked = set()
     for agents, rules in groups:
         has_full_block = any(re.match(r"disallow:\s*/\s*$", r) for r in rules)
-        has_allow = any(re.match(r"allow:\s*/\S", r) for r in rules)
+        has_allow = any(re.match(r"allow:\s*/", r) for r in rules)
         if has_full_block and not has_allow:
             for agent in agents:
                 if agent in ai_bots:
-                    ai_bots_blocked.append(agent)
+                    ai_bots_blocked.add(agent)
 
     return {
         "has_sitemap": has_sitemap,
-        "blocks_ai_bots": ai_bots_blocked,
+        "blocks_ai_bots": list(ai_bots_blocked),
         "blocks_all_bots": blocks_all,
     }
 
