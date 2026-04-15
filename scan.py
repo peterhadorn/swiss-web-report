@@ -7,7 +7,9 @@ Usage:
 
 import argparse
 import asyncio
+import json
 import logging
+import random
 import sqlite3
 import time
 
@@ -48,7 +50,10 @@ async def run(
     scanned = 0
     active = 0
     errors = 0
+    batch_active = 0
+    batch_scanned = 0
     start_time = time.monotonic()
+    health_path = db_path.replace(".db", "_health.json")
 
     connector = aiohttp.TCPConnector(
         limit=concurrency,
@@ -65,14 +70,16 @@ async def run(
         semaphore = asyncio.Semaphore(concurrency)
 
         async def scan_one(domain: str):
-            nonlocal scanned, active, errors
+            nonlocal scanned, active, errors, batch_active, batch_scanned
             async with semaphore:
                 try:
                     result = await scan_domain(session, domain)
                     insert_result(conn, result)
                     scanned += 1
+                    batch_scanned += 1
                     if result.is_active:
                         active += 1
+                        batch_active += 1
                 except Exception as exc:
                     errors += 1
                     logger.warning(f"Failed {domain}: {exc}")
@@ -82,12 +89,31 @@ async def run(
                     elapsed = time.monotonic() - start_time
                     rate = scanned / elapsed
                     eta_min = (total - scanned) / rate / 60 if rate > 0 else 0
+                    batch_pct = 100 * batch_active / batch_scanned if batch_scanned else 0
+                    overall_pct = 100 * active / scanned
                     logger.info(
                         f"{scanned}/{total} ({scanned/total*100:.1f}%) "
                         f"active={active} "
                         f"rate={rate:.0f}/s "
-                        f"ETA={eta_min:.0f}m"
+                        f"ETA={eta_min:.0f}m "
+                        f"batch_active={batch_pct:.0f}% "
+                        f"overall_active={overall_pct:.0f}%"
                     )
+                    # Write health file
+                    with open(health_path, "w") as hf:
+                        json.dump({
+                            "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                            "scanned": scanned,
+                            "total": total,
+                            "active": active,
+                            "errors": errors,
+                            "rate": round(rate, 1),
+                            "eta_min": round(eta_min),
+                            "batch_active_pct": round(batch_pct, 1),
+                            "overall_active_pct": round(overall_pct, 1),
+                        }, hf)
+                    batch_active = 0
+                    batch_scanned = 0
                     conn.commit()
 
         # Process in batches to avoid creating millions of coroutines at once
@@ -130,11 +156,15 @@ def main():
     parser.add_argument("--output", default="results.db", help="SQLite output")
     parser.add_argument("--concurrency", type=int, default=100)
     parser.add_argument("--no-resume", action="store_true")
+    parser.add_argument("--shuffle", action="store_true", help="Randomize domain order (seed=42)")
     parser.add_argument("--limit", type=int, help="Limit domains (testing)")
 
     args = parser.parse_args()
 
     domains = load_domains(args.input)
+    if args.shuffle:
+        random.seed(42)  # reproducible shuffle
+        random.shuffle(domains)
     if args.limit:
         domains = domains[:args.limit]
 
