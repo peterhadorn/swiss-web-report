@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.11.0 — 2026-04-15
+
+### Production scan setup
+- Timeout reduced from 15s to 8s (dead domains clear faster)
+- Removed trailing-slash duplicate paths (12→6 impressum, 14→10 datenschutz)
+- Added `--shuffle` flag (seed=42, reproducible) to distribute active/dead domains evenly
+- Health monitoring: writes `results_health.json` every 1000 domains with rate, active %, ETA
+- Per-batch active rate logged to detect network saturation
+- Systemd service (`swiss-web-scan`) with auto-restart on crash
+- Hourly Slack notifications to leadgen-pipeline channel
+- Swap flush cron (every 30min, only if >200MB swap and >1GB RAM free)
+- Benchmarked concurrency: 50 is optimal (73% active, no choking)
+
 ## v0.10.0 — 2026-04-14
 
 ### Sixth review fixes

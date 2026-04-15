@@ -14,7 +14,7 @@ from scanner.parsers import (
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT = aiohttp.ClientTimeout(total=15, connect=5)
+TIMEOUT = aiohttp.ClientTimeout(total=8, connect=4)
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -23,31 +23,23 @@ HEADERS = {
 MAX_HTML_BYTES = 200_000  # 200KB max per page
 
 IMPRESSUM_PATHS = [
-    # German
-    "/impressum", "/impressum/",
-    # French
-    "/mentions-legales", "/mentions-legales/",
+    "/impressum",
+    "/mentions-legales",
     "/informations-legales",
-    # Italian
-    "/note-legali", "/note-legali/",
-    # English
-    "/legal-notice", "/legal-notice/",
-    "/imprint", "/imprint/",
+    "/note-legali",
+    "/legal-notice",
+    "/imprint",
 ]
 DATENSCHUTZ_PATHS = [
-    # German
-    "/datenschutz", "/datenschutz/",
-    "/datenschutzerklaerung", "/datenschutzerklaerung/",
-    # French
+    "/datenschutz",
+    "/datenschutzerklaerung",
     "/politique-de-confidentialite",
     "/protection-des-donnees",
     "/confidentialite",
-    # Italian
     "/protezione-dati",
     "/informativa-privacy",
-    # English
-    "/privacy", "/privacy/",
-    "/privacy-policy", "/privacy-policy/",
+    "/privacy",
+    "/privacy-policy",
     "/data-protection",
 ]
 
