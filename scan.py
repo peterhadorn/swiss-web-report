@@ -35,6 +35,10 @@ async def run(
     conn.execute("PRAGMA journal_mode=WAL")
     create_table(conn)
 
+    # Get overall counts from DB (survives restarts)
+    db_total_scanned = conn.execute("SELECT COUNT(*) FROM scan_results").fetchone()[0]
+    db_total_active = conn.execute("SELECT COUNT(*) FROM scan_results WHERE is_active=1").fetchone()[0]
+
     if resume:
         done = get_done_domains(conn)
         before = len(domains)
@@ -52,6 +56,9 @@ async def run(
     errors = 0
     batch_active = 0
     batch_scanned = 0
+    hour_active = 0
+    hour_scanned = 0
+    hour_reset = time.monotonic()
     start_time = time.monotonic()
     health_path = db_path.replace(".db", "_health.json")
 
@@ -71,15 +78,18 @@ async def run(
 
         async def scan_one(domain: str):
             nonlocal scanned, active, errors, batch_active, batch_scanned
+            nonlocal hour_active, hour_scanned, hour_reset
             async with semaphore:
                 try:
                     result = await scan_domain(session, domain)
                     insert_result(conn, result)
                     scanned += 1
                     batch_scanned += 1
+                    hour_scanned += 1
                     if result.is_active:
                         active += 1
                         batch_active += 1
+                        hour_active += 1
                 except Exception as exc:
                     errors += 1
                     logger.warning(f"Failed {domain}: {exc}")
@@ -90,26 +100,37 @@ async def run(
                     rate = scanned / elapsed
                     eta_min = (total - scanned) / rate / 60 if rate > 0 else 0
                     batch_pct = 100 * batch_active / batch_scanned if batch_scanned else 0
-                    overall_pct = 100 * active / scanned
+                    total_scanned = db_total_scanned + scanned
+                    total_active = db_total_active + active
+                    overall_pct = 100 * total_active / total_scanned if total_scanned else 0
+                    hour_pct = 100 * hour_active / hour_scanned if hour_scanned else 0
+                    # Reset hourly counters every 60 min
+                    now = time.monotonic()
+                    if now - hour_reset >= 3600:
+                        hour_active = 0
+                        hour_scanned = 0
+                        hour_reset = now
                     logger.info(
                         f"{scanned}/{total} ({scanned/total*100:.1f}%) "
                         f"active={active} "
                         f"rate={rate:.0f}/s "
                         f"ETA={eta_min:.0f}m "
                         f"batch_active={batch_pct:.0f}% "
+                        f"hour_active={hour_pct:.0f}% "
                         f"overall_active={overall_pct:.0f}%"
                     )
                     # Write health file
                     with open(health_path, "w") as hf:
                         json.dump({
                             "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                            "scanned": scanned,
-                            "total": total,
-                            "active": active,
+                            "scanned": total_scanned,
+                            "total": total + db_total_scanned,
+                            "active": total_active,
                             "errors": errors,
                             "rate": round(rate, 1),
                             "eta_min": round(eta_min),
                             "batch_active_pct": round(batch_pct, 1),
+                            "hour_active_pct": round(hour_pct, 1),
                             "overall_active_pct": round(overall_pct, 1),
                         }, hf)
                     batch_active = 0

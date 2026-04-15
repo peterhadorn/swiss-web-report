@@ -12,6 +12,7 @@
 - Hourly Slack notifications to leadgen-pipeline channel
 - Swap flush cron (every 30min, only if >200MB swap and >1GB RAM free)
 - Benchmarked concurrency: 50 is optimal (73% active, no choking)
+- Rolling 1-hour active rate window in health file and Slack notifications
 
 ## v0.10.0 — 2026-04-14
 
