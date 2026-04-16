@@ -8,7 +8,9 @@
 - Deletes unreliable results from zero-active batches automatically
 - Recreates aiohttp session (fixes corrupted TCP connector pool)
 - Waits 30s between connectivity retries until network returns
-- Incident: network outage at ~41K domains corrupted 392K results; all deleted and re-scanned
+- Fixed bug: circuit breaker check moved inside reporting block (counters were reset before outer loop could check them)
+- **Root cause**: VPS provider's single DNS server (82.21.4.1) overwhelmed by 50 concurrent lookups → switched to Cloudflare/Google DNS (1.1.1.1, 8.8.8.8)
+- Incident: DNS failures corrupted ~470K results across two episodes; deleted and re-scanned from 77K
 
 ## v0.11.0 — 2026-04-15
 
