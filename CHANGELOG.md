@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.12.0 — 2026-04-16
+
+### Circuit breaker for network failures
+- Scanner pauses when 2 consecutive batches have 0% active rate
+- Tests connectivity against google.com, sbb.ch, admin.ch before resuming
+- Deletes unreliable results from zero-active batches automatically
+- Recreates aiohttp session (fixes corrupted TCP connector pool)
+- Waits 30s between connectivity retries until network returns
+- Incident: network outage at ~41K domains corrupted 392K results; all deleted and re-scanned
+
 ## v0.11.0 — 2026-04-15
 
 ### Production scan setup
