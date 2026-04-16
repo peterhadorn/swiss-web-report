@@ -22,6 +22,37 @@ logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 1000  # commit every N results
 REPORT_EVERY = 1000  # log progress every N results
+CIRCUIT_BREAKER_THRESHOLD = 2  # consecutive 0% batches before pausing
+HEALTH_CHECK_DOMAINS = ["google.com", "sbb.ch", "admin.ch"]
+PAUSE_SECONDS = 30  # how long to wait before retrying after network failure
+
+
+async def _check_connectivity(timeout: aiohttp.ClientTimeout, headers: dict) -> bool:
+    """Test if we can reach known-good domains. Creates a fresh session."""
+    try:
+        conn = aiohttp.TCPConnector(limit=5, ttl_dns_cache=0)
+        async with aiohttp.ClientSession(
+            connector=conn, timeout=timeout, headers=headers,
+        ) as test_session:
+            for domain in HEALTH_CHECK_DOMAINS:
+                try:
+                    async with test_session.get(f"https://{domain}") as resp:
+                        if resp.status > 0:
+                            return True
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return False
+
+
+def _create_connector(concurrency: int) -> aiohttp.TCPConnector:
+    """Create a fresh TCP connector."""
+    return aiohttp.TCPConnector(
+        limit=concurrency,
+        ttl_dns_cache=300,
+        enable_cleanup_closed=True,
+    )
 
 
 async def run(
@@ -61,19 +92,26 @@ async def run(
     hour_reset = time.monotonic()
     start_time = time.monotonic()
     health_path = db_path.replace(".db", "_health.json")
+    zero_batches = 0  # consecutive batches with 0% active
 
-    connector = aiohttp.TCPConnector(
-        limit=concurrency,
-        ttl_dns_cache=300,
-        enable_cleanup_closed=True,
-    )
+    session = None
+    current_connector = None
 
-    async with aiohttp.ClientSession(
-        connector=connector,
-        timeout=TIMEOUT,
-        headers=HEADERS,
-    ) as session:
+    async def create_session():
+        nonlocal session, current_connector
+        if session and not session.closed:
+            await session.close()
+        current_connector = _create_connector(concurrency)
+        session = aiohttp.ClientSession(
+            connector=current_connector,
+            timeout=TIMEOUT,
+            headers=HEADERS,
+        )
+        return session
 
+    await create_session()
+
+    try:
         semaphore = asyncio.Semaphore(concurrency)
 
         async def scan_one(domain: str):
@@ -138,11 +176,66 @@ async def run(
                     conn.commit()
 
         # Process in batches to avoid creating millions of coroutines at once
-        for i in range(0, total, BATCH_SIZE):
+        i = 0
+        while i < total:
             batch = domains[i:i + BATCH_SIZE]
             tasks = [scan_one(d) for d in batch]
             await asyncio.gather(*tasks)
             conn.commit()
+
+            # Circuit breaker: detect network failure
+            if batch_scanned > 0 and batch_active == 0:
+                zero_batches += 1
+            else:
+                zero_batches = 0
+
+            if zero_batches >= CIRCUIT_BREAKER_THRESHOLD:
+                logger.warning(
+                    f"CIRCUIT BREAKER: {zero_batches} consecutive batches with 0% active. "
+                    f"Pausing to check connectivity..."
+                )
+                # Delete the bad results from this and previous zero batches
+                bad_domains = []
+                for j in range(zero_batches):
+                    start_idx = i - j * BATCH_SIZE
+                    if start_idx >= 0:
+                        bad_domains.extend(domains[start_idx:start_idx + BATCH_SIZE])
+                if bad_domains:
+                    placeholders = ",".join("?" * len(bad_domains))
+                    deleted = conn.execute(
+                        f"DELETE FROM scan_results WHERE domain IN ({placeholders})",
+                        bad_domains,
+                    ).rowcount
+                    conn.commit()
+                    scanned -= deleted
+                    logger.info(f"Deleted {deleted} unreliable results from zero-active batches")
+
+                # Wait for connectivity to return
+                while True:
+                    ok = await _check_connectivity(TIMEOUT, HEADERS)
+                    if ok:
+                        logger.info("Connectivity restored. Recreating session and resuming...")
+                        await create_session()
+                        zero_batches = 0
+                        # Rewind to re-scan the deleted batches
+                        i -= (CIRCUIT_BREAKER_THRESHOLD * BATCH_SIZE)
+                        if i < 0:
+                            i = 0
+                        batch_active = 0
+                        batch_scanned = 0
+                        break
+                    logger.warning(f"No connectivity. Waiting {PAUSE_SECONDS}s...")
+                    await asyncio.sleep(PAUSE_SECONDS)
+            else:
+                # Reset batch counters for next batch
+                batch_active = 0
+                batch_scanned = 0
+
+            i += BATCH_SIZE
+
+    finally:
+        if session and not session.closed:
+            await session.close()
 
     conn.commit()
     conn.close()
