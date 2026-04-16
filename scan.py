@@ -114,9 +114,13 @@ async def run(
     try:
         semaphore = asyncio.Semaphore(concurrency)
 
+        # Circuit breaker state — set by scan_one, checked by outer loop
+        circuit_break_needed = False
+
         async def scan_one(domain: str):
             nonlocal scanned, active, errors, batch_active, batch_scanned
             nonlocal hour_active, hour_scanned, hour_reset
+            nonlocal zero_batches, circuit_break_needed
             async with semaphore:
                 try:
                     result = await scan_domain(session, domain)
@@ -171,6 +175,18 @@ async def run(
                             "hour_active_pct": round(hour_pct, 1),
                             "overall_active_pct": round(overall_pct, 1),
                         }, hf)
+
+                    # Circuit breaker: check BEFORE resetting counters
+                    if batch_active == 0 and batch_scanned >= REPORT_EVERY:
+                        zero_batches += 1
+                        logger.warning(
+                            f"Zero active batch detected ({zero_batches}/{CIRCUIT_BREAKER_THRESHOLD})"
+                        )
+                        if zero_batches >= CIRCUIT_BREAKER_THRESHOLD:
+                            circuit_break_needed = True
+                    else:
+                        zero_batches = 0
+
                     batch_active = 0
                     batch_scanned = 0
                     conn.commit()
@@ -179,27 +195,24 @@ async def run(
         i = 0
         while i < total:
             batch = domains[i:i + BATCH_SIZE]
+            circuit_break_needed = False
             tasks = [scan_one(d) for d in batch]
             await asyncio.gather(*tasks)
             conn.commit()
 
-            # Circuit breaker: detect network failure
-            if batch_scanned > 0 and batch_active == 0:
-                zero_batches += 1
-            else:
-                zero_batches = 0
-
-            if zero_batches >= CIRCUIT_BREAKER_THRESHOLD:
+            if circuit_break_needed:
                 logger.warning(
-                    f"CIRCUIT BREAKER: {zero_batches} consecutive batches with 0% active. "
-                    f"Pausing to check connectivity..."
+                    f"CIRCUIT BREAKER TRIGGERED: {zero_batches} consecutive batches "
+                    f"with 0% active. Pausing..."
                 )
-                # Delete the bad results from this and previous zero batches
+                # Delete the bad results from zero-active batches
                 bad_domains = []
                 for j in range(zero_batches):
                     start_idx = i - j * BATCH_SIZE
                     if start_idx >= 0:
                         bad_domains.extend(domains[start_idx:start_idx + BATCH_SIZE])
+                # Include current batch too
+                bad_domains.extend(batch)
                 if bad_domains:
                     placeholders = ",".join("?" * len(bad_domains))
                     deleted = conn.execute(
@@ -208,7 +221,8 @@ async def run(
                     ).rowcount
                     conn.commit()
                     scanned -= deleted
-                    logger.info(f"Deleted {deleted} unreliable results from zero-active batches")
+                    active -= 0  # they were all inactive anyway
+                    logger.info(f"Deleted {deleted} unreliable results")
 
                 # Wait for connectivity to return
                 while True:
@@ -217,19 +231,17 @@ async def run(
                         logger.info("Connectivity restored. Recreating session and resuming...")
                         await create_session()
                         zero_batches = 0
-                        # Rewind to re-scan the deleted batches
-                        i -= (CIRCUIT_BREAKER_THRESHOLD * BATCH_SIZE)
-                        if i < 0:
-                            i = 0
+                        # Rewind to re-scan deleted batches
+                        rewind = (zero_batches + 1) * BATCH_SIZE
+                        i = max(0, i - rewind)
                         batch_active = 0
                         batch_scanned = 0
                         break
                     logger.warning(f"No connectivity. Waiting {PAUSE_SECONDS}s...")
                     await asyncio.sleep(PAUSE_SECONDS)
-            else:
-                # Reset batch counters for next batch
-                batch_active = 0
-                batch_scanned = 0
+                continue  # restart loop from rewound position
+
+            i += BATCH_SIZE
 
             i += BATCH_SIZE
 
