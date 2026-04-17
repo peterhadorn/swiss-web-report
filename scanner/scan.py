@@ -25,23 +25,24 @@ MAX_HTML_BYTES = 200_000  # 200KB max per page
 IMPRESSUM_PATHS = [
     "/impressum",
     "/mentions-legales",
-    "/informations-legales",
     "/note-legali",
     "/legal-notice",
     "/imprint",
+    "/informations-legales",
 ]
 DATENSCHUTZ_PATHS = [
     "/datenschutz",
+    "/privacy-policy",
+    "/privacy",
     "/datenschutzerklaerung",
     "/politique-de-confidentialite",
     "/protection-des-donnees",
     "/confidentialite",
     "/protezione-dati",
     "/informativa-privacy",
-    "/privacy",
-    "/privacy-policy",
     "/data-protection",
 ]
+MAX_LEGAL_ATTEMPTS = 5  # total requests per legal page type (discovered + hardcoded)
 
 
 async def scan_domain(session: aiohttp.ClientSession, domain: str) -> ScanResult:
@@ -213,52 +214,27 @@ async def _fetch_legal_page(
     page_type: str,
     result: ScanResult,
 ):
-    """Try hardcoded paths, then homepage-discovered links for legal pages."""
-    # Phase 1: Try hardcoded paths (light content validation to filter catch-all 200s)
-    for path in paths:
-        try:
-            async with session.get(f"{base_url}{path}") as resp:
-                if resp.status == 200:
-                    raw = await resp.content.read(MAX_HTML_BYTES)
-                    html = raw.decode("utf-8", errors="replace")
-                    html_lower = html.lower()
-                    if page_type == "impressum":
-                        if not _looks_like_impressum(html_lower):
-                            continue
-                        result.has_impressum = True
-                        data = parse_impressum(html)
-                        result.impressum_has_email = data["impressum_has_email"]
-                        result.impressum_has_address = data["impressum_has_address"]
-                    else:
-                        if not _looks_like_datenschutz(html_lower):
-                            continue
-                        result.has_datenschutz = True
-                    return  # found it
-        except Exception:
-            continue
+    """Try homepage-discovered links first (higher hit rate), then hardcoded paths.
 
-    # Phase 2: Try homepage-discovered links (same host only, need content validation)
-    # Normalize, dedupe, and cap to avoid excessive requests
+    Total requests capped at MAX_LEGAL_ATTEMPTS per page type to limit DNS/network load.
+    """
+    tried = 0
     base_host = urlparse(base_url).hostname or ""
     base_host_bare = base_host.removeprefix("www.")
     seen_urls = set()
-    max_discovered = 5  # cap per page type to stay within request budget
-    tried = 0
+
+    # Phase 1: Try homepage-discovered links (pre-filtered, much higher hit rate)
     for link in homepage_discovered:
-        if tried >= max_discovered:
-            break
-        # Resolve against final homepage URL (e.g. https://example.ch/de/)
-        # so relative links like href="impressum" become /de/impressum
+        if tried >= MAX_LEGAL_ATTEMPTS:
+            return
         url = urljoin(homepage_url, link)
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
             continue
-        # Dedupe by normalized URL (scheme + host + path)
         normalized = f"{parsed.scheme}://{parsed.hostname}{parsed.path}"
         if normalized in seen_urls:
             continue
         seen_urls.add(normalized)
-        # Same-host check
         link_host_bare = (parsed.hostname or "").removeprefix("www.")
         if link_host_bare != base_host_bare and not link_host_bare.endswith(f".{base_host_bare}"):
             continue
@@ -268,21 +244,48 @@ async def _fetch_legal_page(
                 if resp.status == 200:
                     raw = await resp.content.read(MAX_HTML_BYTES)
                     html = raw.decode("utf-8", errors="replace")
-                    html_lower = html.lower()
-                    if page_type == "impressum":
-                        if not _looks_like_impressum(html_lower):
-                            continue
-                        result.has_impressum = True
-                        data = parse_impressum(html)
-                        result.impressum_has_email = data["impressum_has_email"]
-                        result.impressum_has_address = data["impressum_has_address"]
-                    else:
-                        if not _looks_like_datenschutz(html_lower):
-                            continue
-                        result.has_datenschutz = True
-                    return  # found it
+                    if _validate_legal_page(html, page_type, result):
+                        return
         except Exception:
             continue
+
+    # Phase 2: Try hardcoded paths (use remaining budget)
+    for path in paths:
+        if tried >= MAX_LEGAL_ATTEMPTS:
+            return
+        url = f"{base_url}{path}"
+        normalized = f"{urlparse(url).scheme}://{urlparse(url).hostname}{path}"
+        if normalized in seen_urls:
+            continue
+        seen_urls.add(normalized)
+        tried += 1
+        try:
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    raw = await resp.content.read(MAX_HTML_BYTES)
+                    html = raw.decode("utf-8", errors="replace")
+                    if _validate_legal_page(html, page_type, result):
+                        return
+        except Exception:
+            continue
+
+
+def _validate_legal_page(html: str, page_type: str, result: ScanResult) -> bool:
+    """Validate and record a legal page match. Returns True if valid."""
+    html_lower = html.lower()
+    if page_type == "impressum":
+        if not _looks_like_impressum(html_lower):
+            return False
+        result.has_impressum = True
+        data = parse_impressum(html)
+        result.impressum_has_email = data["impressum_has_email"]
+        result.impressum_has_address = data["impressum_has_address"]
+        return True
+    else:
+        if not _looks_like_datenschutz(html_lower):
+            return False
+        result.has_datenschutz = True
+        return True
 
 
 def _looks_like_impressum(html_lower: str) -> bool:

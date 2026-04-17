@@ -1,7 +1,7 @@
 """Swiss Web Report 2026 — Main scanner entry point.
 
 Usage:
-    python3 scan.py --input domains.txt --output results.db --concurrency 200
+    python3 scan.py --input domains.txt --output results.db --concurrency 50
     python3 scan.py --input domains.txt --output results.db --limit 100  # test run
 """
 
@@ -14,6 +14,7 @@ import sqlite3
 import time
 
 import aiohttp
+from aiohttp.resolver import AsyncResolver
 
 from scanner.db import create_table, get_done_domains, insert_result
 from scanner.scan import scan_domain, TIMEOUT, HEADERS
@@ -25,12 +26,15 @@ REPORT_EVERY = 1000  # log progress every N results
 CIRCUIT_BREAKER_THRESHOLD = 2  # consecutive 0% batches before pausing
 HEALTH_CHECK_DOMAINS = ["google.com", "sbb.ch", "admin.ch"]
 PAUSE_SECONDS = 30  # how long to wait before retrying after network failure
+SESSION_RECYCLE_SECS = 900  # recreate session every 15 min to prevent stale connections
+DNS_SERVERS = ["1.1.1.1", "8.8.8.8", "9.9.9.9", "1.0.0.1", "8.8.4.4"]
 
 
 async def _check_connectivity(timeout: aiohttp.ClientTimeout, headers: dict) -> bool:
-    """Test if we can reach known-good domains. Creates a fresh session."""
+    """Test if we can reach known-good domains. Creates a fresh session with own resolver."""
     try:
-        conn = aiohttp.TCPConnector(limit=5, ttl_dns_cache=0)
+        resolver = AsyncResolver(nameservers=list(DNS_SERVERS))
+        conn = aiohttp.TCPConnector(limit=5, ttl_dns_cache=0, resolver=resolver)
         async with aiohttp.ClientSession(
             connector=conn, timeout=timeout, headers=headers,
         ) as test_session:
@@ -47,18 +51,20 @@ async def _check_connectivity(timeout: aiohttp.ClientTimeout, headers: dict) -> 
 
 
 def _create_connector(concurrency: int) -> aiohttp.TCPConnector:
-    """Create a fresh TCP connector."""
+    """Create a fresh TCP connector with async DNS resolver."""
+    resolver = AsyncResolver(nameservers=list(DNS_SERVERS))
     return aiohttp.TCPConnector(
         limit=concurrency,
         ttl_dns_cache=300,
         enable_cleanup_closed=True,
+        resolver=resolver,
     )
 
 
 async def run(
     domains: list[str],
     db_path: str,
-    concurrency: int = 100,
+    concurrency: int = 50,
     resume: bool = True,
 ):
     """Scan all domains with concurrency limit, write to SQLite."""
@@ -96,9 +102,10 @@ async def run(
 
     session = None
     current_connector = None
+    session_created_at = time.monotonic()
 
     async def create_session():
-        nonlocal session, current_connector
+        nonlocal session, current_connector, session_created_at
         if session and not session.closed:
             await session.close()
         current_connector = _create_connector(concurrency)
@@ -107,6 +114,7 @@ async def run(
             timeout=TIMEOUT,
             headers=HEADERS,
         )
+        session_created_at = time.monotonic()
         return session
 
     await create_session()
@@ -205,14 +213,13 @@ async def run(
                     f"CIRCUIT BREAKER TRIGGERED: {zero_batches} consecutive batches "
                     f"with 0% active. Pausing..."
                 )
-                # Delete the bad results from zero-active batches
+                # Collect domains from zero-active batches + current batch
+                rewind_count = zero_batches + 1  # +1 for current batch
                 bad_domains = []
-                for j in range(zero_batches):
+                for j in range(rewind_count):
                     start_idx = i - j * BATCH_SIZE
                     if start_idx >= 0:
                         bad_domains.extend(domains[start_idx:start_idx + BATCH_SIZE])
-                # Include current batch too
-                bad_domains.extend(batch)
                 if bad_domains:
                     placeholders = ",".join("?" * len(bad_domains))
                     deleted = conn.execute(
@@ -221,8 +228,7 @@ async def run(
                     ).rowcount
                     conn.commit()
                     scanned -= deleted
-                    active -= 0  # they were all inactive anyway
-                    logger.info(f"Deleted {deleted} unreliable results")
+                    logger.info(f"Deleted {deleted} unreliable results from {rewind_count} batches")
 
                 # Wait for connectivity to return
                 while True:
@@ -230,10 +236,9 @@ async def run(
                     if ok:
                         logger.info("Connectivity restored. Recreating session and resuming...")
                         await create_session()
+                        # Rewind to re-scan deleted batches (before resetting zero_batches)
+                        i = max(0, i - rewind_count * BATCH_SIZE)
                         zero_batches = 0
-                        # Rewind to re-scan deleted batches
-                        rewind = (zero_batches + 1) * BATCH_SIZE
-                        i = max(0, i - rewind)
                         batch_active = 0
                         batch_scanned = 0
                         break
@@ -241,7 +246,10 @@ async def run(
                     await asyncio.sleep(PAUSE_SECONDS)
                 continue  # restart loop from rewound position
 
-            i += BATCH_SIZE
+            # Session recycling: refresh every 15 min to prevent stale connections/DNS
+            if time.monotonic() - session_created_at > SESSION_RECYCLE_SECS:
+                logger.info("Recycling session (periodic refresh to keep DNS healthy)")
+                await create_session()
 
             i += BATCH_SIZE
 
@@ -255,7 +263,7 @@ async def run(
     elapsed = time.monotonic() - start_time
     logger.info(
         f"Done: {scanned} domains in {elapsed/60:.1f}m. "
-        f"Active: {active} ({active/scanned*100:.1f}%) "
+        f"Active: {active} ({active/max(scanned,1)*100:.1f}%) "
         f"Errors: {errors}"
     )
 
@@ -280,7 +288,7 @@ def main():
     parser = argparse.ArgumentParser(description="Swiss Web Report Scanner")
     parser.add_argument("--input", required=True, help="Domain list file")
     parser.add_argument("--output", default="results.db", help="SQLite output")
-    parser.add_argument("--concurrency", type=int, default=100)
+    parser.add_argument("--concurrency", type=int, default=50)
     parser.add_argument("--no-resume", action="store_true")
     parser.add_argument("--shuffle", action="store_true", help="Randomize domain order (seed=42)")
     parser.add_argument("--limit", type=int, help="Limit domains (testing)")

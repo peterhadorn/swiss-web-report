@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.13.0 — 2026-04-17
+
+### Fix DNS death spiral + batch skip bug
+- **Root cause found**: aiohttp's default DNS uses a ~5-thread `getaddrinfo` threadpool — saturates after ~1 hour of mass scanning, causing 0% active rate (all DNS lookups queue behind stale ones)
+- Added `aiodns` (c-ares) for fully async DNS resolution — no threadpool bottleneck
+- Use 5 DNS resolvers: Cloudflare (1.1.1.1, 1.0.0.1), Google (8.8.8.8, 8.8.4.4), Quad9 (9.9.9.9)
+- Session recycling every 15 min to prevent stale connection pools
+- **Fixed**: duplicate `i += BATCH_SIZE` was skipping every other batch (~50% of domains never scanned)
+- **Fixed**: circuit breaker rewind used already-reset `zero_batches` (always rewound only 1 batch)
+- Legal pages: try homepage-discovered links first (higher hit rate), hardcoded paths second
+- Capped legal page attempts at 5 per type (was up to 16 for non-compliant domains)
+- Default concurrency changed to 50
+- Division-by-zero guard on final summary log
+- Scan runs as systemd service again (auto-restart, survives reboot)
+
 ## v0.12.0 — 2026-04-16
 
 ### Circuit breaker for network failures
