@@ -32,7 +32,7 @@ swiss-web-report/
 python3 scan.py --input data/ch_domains.txt --output results.db --limit 100
 
 # Full scan on VPS
-python3 scan.py --input data/ch_domains.txt --output results.db --concurrency 200
+python3 scan.py --input data/ch_domains.txt --output results.db --concurrency 50
 
 # Analyze results
 python3 analyze.py results.db
@@ -87,8 +87,8 @@ ssh root@82.21.4.94
 tmux new -s webscan
 cd /var/www/swiss-web-report
 
-# Start at concurrency 200, monitor for 10 min
-.venv/bin/python3 scan.py --input data/ch_domains.txt --output data/results.db --concurrency 200
+# Start at concurrency 50 (higher values cause DNS/network exhaustion after ~1h)
+.venv/bin/python3 scan.py --input data/ch_domains.txt --output data/results.db --concurrency 50
 
 # Ctrl+B, D to detach from tmux
 # tmux attach -t webscan to reconnect

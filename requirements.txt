@@ -1,2 +1,3 @@
 aiohttp>=3.9
+aiodns>=3.0
 selectolax>=0.3
