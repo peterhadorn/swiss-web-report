@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.14.0 — 2026-04-18
+
+### Detect auto-generated llms.txt
+- New `llms_txt_auto` field distinguishes Wix boilerplate from organic llms.txt
+- Wix auto-deploys identical 873-byte template on all sites (MCP endpoint docs, zero business-specific content)
+- Detection checks for "powered by Wix" + "/_api/mcp" signatures in actual content
+- Real organic llms.txt adoption: 8.5% of active Swiss sites, not 12.5%
+
 ## v0.13.0 — 2026-04-17
 
 ### Fix DNS death spiral + batch skip bug
