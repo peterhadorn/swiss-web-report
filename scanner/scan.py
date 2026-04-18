@@ -169,6 +169,9 @@ async def _fetch_llms_txt(
                 text = raw.decode("utf-8", errors="replace")
                 if text.strip() and not text.strip().startswith("<!"):
                     result.has_llms_txt = True
+                    # Detect platform-auto-generated boilerplate
+                    if "powered by Wix" in text and "/_api/mcp" in text:
+                        result.llms_txt_auto = True
                     score = 5  # exists
                     if len(text.strip()) >= 50:
                         score += 2

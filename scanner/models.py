@@ -41,6 +41,7 @@ class ScanResult:
     schema_types: list = field(default_factory=list)
     has_llms_txt: bool = False
     llms_txt_score: int = 0
+    llms_txt_auto: bool = False  # True if platform-generated boilerplate (e.g. Wix)
     has_robots: bool = False
     has_sitemap: bool = False
     blocks_ai_bots: list = field(default_factory=list)

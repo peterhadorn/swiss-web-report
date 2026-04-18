@@ -18,7 +18,7 @@ COLUMNS = [
     "has_canonical INTEGER", "has_viewport INTEGER",
     "has_hreflang INTEGER", "language TEXT", "has_og INTEGER",
     "has_schema INTEGER", "schema_types TEXT",
-    "has_llms_txt INTEGER", "llms_txt_score INTEGER",
+    "has_llms_txt INTEGER", "llms_txt_score INTEGER", "llms_txt_auto INTEGER",
     "has_robots INTEGER", "has_sitemap INTEGER", "blocks_ai_bots TEXT",
     "blocks_all_bots INTEGER",
     "status_category TEXT",
