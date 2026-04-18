@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.14.1 — 2026-04-18
+
+### Fix selectolax None attribute crash
+- selectolax `.attributes.get("content", "")` returns `None` (not `""`) for malformed HTML attributes
+- Caused 49K domains to fail with `'NoneType' object has no attribute 'strip'`
+- Fix: use `or ""` fallback in `parse_homepage()` and `_detect_cms()`
+- Deleted affected rows from DB so scanner rescans them with the fix
+
 ## v0.14.0 — 2026-04-18
 
 ### Detect auto-generated llms.txt

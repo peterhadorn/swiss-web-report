@@ -33,7 +33,7 @@ def parse_homepage(html: str) -> dict:
 
     meta_desc = tree.css_first('meta[name="description"]')
     if meta_desc:
-        content = meta_desc.attributes.get("content", "")
+        content = meta_desc.attributes.get("content") or ""
         r["has_meta_desc"] = bool(content.strip())
         r["meta_desc_len"] = len(content)
     else:
@@ -221,7 +221,7 @@ def parse_robots_txt(text: str) -> dict:
 def _detect_cms(html_lower: str, tree) -> tuple[str, str]:
     """Detect CMS and version from HTML."""
     generator = tree.css_first('meta[name="generator"]')
-    gen = generator.attributes.get("content", "") if generator else ""
+    gen = (generator.attributes.get("content") or "") if generator else ""
     gen_lower = gen.lower()
 
     if "wordpress" in gen_lower or "wp-content" in html_lower:
