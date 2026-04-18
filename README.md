@@ -28,70 +28,58 @@ We scan every registered .ch domain and collect 35+ data points per website:
 ### SEO Structure
 - Title tag, meta description, heading hierarchy (H1/H2/H3), canonical URL, viewport meta, hreflang, Open Graph tags
 
-## Methodology
-
-| | |
-|---|---|
-| **Data source** | Official .ch zonefile from [SWITCH](https://www.switch.ch/open-data/) |
-| **Domains** | 2,459,127 unique .ch domains |
-| **Requests per domain** | 3-30 (homepage, robots.txt, llms.txt, sitemap.xml, up to 12 impressum paths, up to 15 datenschutz paths — stops at first match) |
-| **Scanner** | Async Python (aiohttp), ~100 concurrent connections |
-| **Runtime** | ~30-38 hours (single pass) |
-| **Storage** | SQLite |
-| **Ethics** | No domain names published. No login attempts. No crawling beyond homepage + legal pages. |
-
 ## Quick Start
 
 ```bash
-# Clone
 git clone https://github.com/peterhadorn/swiss-web-report.git
 cd swiss-web-report
-
-# Setup
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Obtain the .ch zonefile (requires dig with TSIG key — see below)
-# Place domain list in data/ch_domains.txt (one domain per line)
+# Prepare a domain list (one domain per line, no protocol)
+# e.g. example.com, example.org — works with any TLD or zonefile
 
 # Test on 100 domains
-python3 scan.py --input data/ch_domains.txt --output results.db --limit 100
+python3 scan.py --input domains.txt --output results.db --limit 100
 
 # Full scan
-python3 scan.py --input data/ch_domains.txt --output results.db --concurrency 200
+python3 scan.py --input domains.txt --output results.db --concurrency 50
 
 # Analyze results
 python3 analyze.py results.db
 ```
 
-## Obtaining the .ch Zonefile
+## Built for Scale
 
-The Swiss .ch zonefile is publicly available from SWITCH via DNS zone transfer:
+The scanner is designed to handle millions of domains reliably:
 
-```bash
-dig -y hmac-sha512:tsig-zonedata-ch-public-21-01:stZwEGApYumtXkh73qMLPqfbIDozWKZLkqRvcjKSpRnsor6A6MxixRL6C2HeSVBQNfMW4wer+qjS0ZSfiWiJ3Q== \
-    @zonedata.switch.ch +noall +answer +noidnout +onesoa AXFR ch. > ch_raw.txt
+- **Async DNS (aiodns/c-ares)** — no threadpool bottleneck; rotates across 5 public DNS servers (Cloudflare, Google, Quad9)
+- **Session recycling** — recreates HTTP sessions every 15 minutes to prevent stale connection pools and DNS cache poisoning
+- **Circuit breaker** — automatically pauses when network connectivity drops (detects consecutive zero-active batches), deletes unreliable results, waits for recovery, then resumes
+- **Connectivity health checks** — tests against known-good domains before resuming after an outage
+- **Resume support** — skips already-scanned domains; safe to restart at any time
+- **Bounded reads** — 200KB max per page, prevents memory exhaustion on large sites
+- **Shuffled scanning** — randomizes domain order to spread DNS load evenly across nameservers
 
-# Extract unique domains
-awk '/\tIN\tNS\t/ { print $1 }' ch_raw.txt | sed 's/\.$//' | sort -u > data/ch_domains.txt
+## CLI Options
+
 ```
+python3 scan.py --input FILE --output DB [options]
 
-See [SWITCH Open Data](https://www.switch.ch/open-data/) for terms of use.
-
-## Resume Support
-
-The scanner automatically skips already-scanned domains. If the scan is interrupted, just restart it with the same command — it picks up where it left off.
+--input         Domain list (one per line, required)
+--output        SQLite output path (required)
+--concurrency   Parallel connections (default: 50)
+--limit         Scan only first N domains (for testing)
+--shuffle       Randomize domain order
+--no-resume     Start fresh, ignore existing results
+```
 
 ## Results
 
-Results are published as aggregated statistics at **[webevolve.ch/studie/](https://webevolve.ch/studie/)** (coming soon).
+Results are published as aggregated statistics at **[ki-barometer.ch](https://ki-barometer.ch)**.
 
 No individual domain names are exposed in the published results.
-
-## Complementary Research
-
-This study complements the [Swiss Digital Infrastructure Study 2026](https://risikomonitor.com/news/cybersecurity-studie-schweiz-2026) by RisikoMonitor, which analyzed security vulnerabilities across 3.3M .ch domains. Our study focuses on AI readiness, legal compliance, and CMS landscape — areas not covered by their security-focused analysis.
 
 ## Citation
 
@@ -100,7 +88,7 @@ This study complements the [Swiss Digital Infrastructure Study 2026](https://ris
   author = {Peter Hadorn},
   title = {Swiss Web Report 2026: AI Readiness, Legal Compliance, and CMS Landscape Across 2.46 Million .ch Domains},
   year = {2026},
-  url = {https://webevolve.ch/studie/},
+  url = {https://ki-barometer.ch},
   publisher = {WebEvolve}
 }
 ```
