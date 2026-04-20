@@ -1,4 +1,6 @@
-# Schweizer Web-Studie 2026
+# Schweizer Web-Studie
+
+**Frühling 2026: KI-Bereitschaft, CMS, SEO & mehr**
 
 Analyse der .ch-Zone auf KI-Bereitschaft, CMS-Verbreitung, SEO-Struktur und Infrastruktur.
 
@@ -6,7 +8,7 @@ Analyse der .ch-Zone auf KI-Bereitschaft, CMS-Verbreitung, SEO-Struktur und Infr
 
 Grundlage ist das öffentliche SWITCH-Zonefile mit allen registrierten .ch-Domains. Der Scanner prüft jede Domain per HTTP-Request und erfasst pro Website rund 35 Datenpunkte:
 
-- **KI-Bereitschaft:** llms.txt-Datei vorhanden, Schema.org-Markup, KI-Bot-Blockierung via robots.txt
+- **KI-Bereitschaft:** llms.txt-Datei vorhanden, strukturierte Daten (JSON-LD, Microdata, RDFa), KI-Bot-Blockierung via robots.txt
 - **CMS-Erkennung:** WordPress, Wix, TYPO3, Joomla, Squarespace, Webflow, Contao, Drupal u.a.
 - **E-Commerce:** WooCommerce, Shopify, PrestaShop, Magento
 - **SEO-Struktur:** Title-Tag, Meta Description, H1-Hierarchie, Canonical URL, Hreflang, Open Graph
@@ -32,7 +34,7 @@ Es werden keine einzelnen Domainnamen veröffentlicht.
 ## Zitation
 
 ```
-Hadorn, P. (2026). Schweizer Web-Studie 2026. KI-Barometer.ch.
+Hadorn, P. (2026). Schweizer Web-Studie. KI-Barometer.ch.
 https://ki-barometer.ch/schweizer-web-studie/
 ```
 
