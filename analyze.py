@@ -4,12 +4,19 @@ Usage:
     python3 analyze.py results.db
 """
 
+import argparse
+from pathlib import Path
 import sqlite3
-import sys
 
 
 def analyze(db_path: str):
+    if db_path != ":memory:" and not Path(db_path).exists():
+        raise SystemExit(f"Database not found: {db_path}")
+
     conn = sqlite3.connect(db_path)
+    if not _table_exists(conn, "scan_results"):
+        conn.close()
+        raise SystemExit(f"Database has no scan_results table: {db_path}")
 
     total = _c(conn, "1=1")
     active = _c(conn, "is_active = 1")
@@ -137,6 +144,20 @@ def _c(conn, where: str) -> int:
     return conn.execute(f"SELECT COUNT(*) FROM scan_results WHERE {where}").fetchone()[0]
 
 
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+def main(argv: list[str] | None = None):
+    parser = argparse.ArgumentParser(description="Analyze Swiss Web Report scan results")
+    parser.add_argument("db_path", nargs="?", default="results.db", help="SQLite results DB")
+    args = parser.parse_args(argv)
+    analyze(args.db_path)
+
+
 if __name__ == "__main__":
-    db_path = sys.argv[1] if len(sys.argv) > 1 else "results.db"
-    analyze(db_path)
+    main()

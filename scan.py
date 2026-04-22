@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import json
 import logging
+from pathlib import Path
 import random
 import sqlite3
 import time
@@ -28,6 +29,12 @@ HEALTH_CHECK_DOMAINS = ["google.com", "sbb.ch", "admin.ch"]
 PAUSE_SECONDS = 30  # how long to wait before retrying after network failure
 SESSION_RECYCLE_SECS = 900  # recreate session every 15 min to prevent stale connections
 DNS_SERVERS = ["1.1.1.1", "8.8.8.8", "9.9.9.9", "1.0.0.1", "8.8.4.4"]
+
+
+def _health_path_for(db_path: str) -> str:
+    """Return a sidecar health-file path without risking DB overwrite."""
+    path = Path(db_path)
+    return str(path.with_name(f"{path.stem}_health.json"))
 
 
 async def _check_connectivity(timeout: aiohttp.ClientTimeout, headers: dict) -> bool:
@@ -70,6 +77,10 @@ async def run(
     """Scan all domains with concurrency limit, write to SQLite."""
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA journal_mode=WAL")
+    if not resume:
+        conn.execute("DROP TABLE IF EXISTS scan_results")
+        conn.commit()
+        logger.info("Starting fresh: cleared existing scan_results table")
     create_table(conn)
 
     # Get overall counts from DB (survives restarts)
@@ -97,7 +108,7 @@ async def run(
     hour_scanned = 0
     hour_reset = time.monotonic()
     start_time = time.monotonic()
-    health_path = db_path.replace(".db", "_health.json")
+    health_path = _health_path_for(db_path)
     zero_batches = 0  # consecutive batches with 0% active
 
     session = None
