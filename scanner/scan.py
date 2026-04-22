@@ -49,6 +49,7 @@ async def scan_domain(session: aiohttp.ClientSession, domain: str) -> ScanResult
     """Scan a single domain: homepage + robots.txt + llms.txt + legal pages."""
     result = ScanResult(domain=domain)
     base_url = ""
+    homepage_parsed = False
 
     # --- 1. Homepage ---
     for scheme in ["https", "http"]:
@@ -63,24 +64,28 @@ async def scan_domain(session: aiohttp.ClientSession, domain: str) -> ScanResult
                 result.http_version = f"{resp.version.major}.{resp.version.minor}"
                 result.server = resp.headers.get("Server", "")[:100]
                 result.final_url = str(resp.url)[:200]
-                result.final_host_is_www = resp.url.host.startswith("www.")
-                host = resp.url.host
+                host = resp.url.host or ""
+                result.final_host_is_www = host.startswith("www.")
                 if resp.url.explicit_port:
                     host = f"{host}:{resp.url.port}"
                 base_url = f"{resp.url.scheme}://{host}"
 
                 if resp.status == 200:
-                    raw = await resp.content.read(MAX_HTML_BYTES)
-                    charset = resp.charset or "utf-8"
                     try:
+                        raw = await resp.content.read(MAX_HTML_BYTES)
+                        charset = resp.charset or "utf-8"
                         html = raw.decode(charset, errors="replace")
                     except (UnicodeDecodeError, LookupError):
                         html = raw.decode("utf-8", errors="replace")
+                    except Exception as exc:
+                        result.error = str(exc)[:200]
+                        continue
                     page_data = parse_homepage(html)
                     for key, value in page_data.items():
                         setattr(result, key, value)
                     # Extract legal page links from homepage for fallback
                     result._homepage_legal_links = find_legal_links(html)
+                    homepage_parsed = True
                 if resp.status == 200:
                     break  # success, don't try http fallback
                 # Non-200 HTTPS: try HTTP as fallback
@@ -95,8 +100,10 @@ async def scan_domain(session: aiohttp.ClientSession, domain: str) -> ScanResult
 
     # Classify based on status code
     code = result.status_code
-    if code == 200:
+    if code == 200 and homepage_parsed:
         result.status_category = "scannable"
+    elif code == 200:
+        result.status_category = "error"
     elif code in (403, 401, 429, 407):
         result.status_category = "blocked"
     elif code == 404:
@@ -115,7 +122,7 @@ async def scan_domain(session: aiohttp.ClientSession, domain: str) -> ScanResult
         await _fetch_robots(session, base_url, result)
         await _fetch_llms_txt(session, base_url, result)
 
-    if result.status_code != 200:
+    if result.status_category != "scannable":
         return result
 
     # --- 4. Sitemap (direct check) ---
