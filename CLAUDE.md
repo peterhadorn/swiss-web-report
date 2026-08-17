@@ -45,12 +45,20 @@ python3 dmarc_scan.py --input data/ch_domains.txt --output data/dmarc_scan_resul
 python3 analyze_dmarc.py data/dmarc_scan_results.db
 ```
 
-DNS-only: MX, SPF, DKIM (provider-aware selector guess), DMARC, DNSSEC,
-BIMI, MTA-STS, TLS-RPT, CAA. SPF/DKIM/DMARC/BIMI/MTA-STS/TLS-RPT/CAA are only
-checked for domains with MX; DNSSEC is checked for all domains. Never
-connects to the domain's own mail/web servers — public resolvers only.
-Domains that error on a query are retried on the next run rather than
-recorded as permanently done.
+DNS-only: MX (preference-sorted), SPF (checked for every domain, MX or
+not), the legacy SPF RR-type-99 check, DKIM (12-selector best-effort guess,
+provider-specific for Microsoft 365/Google Workspace, plus testing-mode and
+weak-key-length flags), DMARC (checked for every domain, MX or not —
+policy, pct, subdomain policy, alignment mode, report-destination domains),
+DNSSEC, NS, BIMI, MTA-STS (TXT-record presence only — the enforcement
+*mode* lives in an HTTPS-fetched policy file and is out of scope), TLS-RPT,
+CAA, TLSA/DANE for SMTP (per MX host), and dangling-MX detection (per MX
+host, via A/AAAA lookup). DKIM/BIMI/MTA-STS/TLS-RPT/CAA/TLSA are only
+checked for domains with MX; SPF/legacy-SPF/DMARC/DNSSEC/NS are checked for
+every domain that exists in DNS regardless of MX. Never connects to the
+domain's own mail/web servers — public resolvers only. Domains that error
+on a query are retried on the next run rather than recorded as permanently
+done.
 
 ## How to Run
 
