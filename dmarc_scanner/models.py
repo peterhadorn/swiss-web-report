@@ -1,0 +1,58 @@
+"""Data model for the passive DNS email-security scan."""
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class DmarcScanResult:
+    domain: str
+
+    # Existence / MX
+    domain_exists: bool = True
+    has_mx: bool = False
+    mx_hosts: list = field(default_factory=list)
+    mx_provider: str = ""  # microsoft365, google_workspace, hostpoint, infomaniak,
+                            # cyon, self_hosted, other, "" (no MX)
+
+    # SPF
+    has_spf: bool = False
+    spf_record: str = ""
+    spf_all_mechanism: str = ""  # hardfail, softfail, neutral, pass, none
+    # Top-level mechanism count only — does NOT recursively resolve include:/
+    # redirect= chains, so a domain can exceed the real RFC 7208 10-lookup
+    # limit while spf_near_limit stays False. Rough estimate, by design.
+    spf_lookup_count: int = 0
+    spf_near_limit: bool = False  # True if spf_lookup_count >= 8
+
+    # DKIM (provider-aware selector guess only)
+    dkim_selectors_checked: list = field(default_factory=list)
+    dkim_selectors_found: list = field(default_factory=list)
+    has_dkim: bool = False
+
+    # DMARC
+    has_dmarc: bool = False
+    dmarc_record: str = ""
+    # none, quarantine, reject, or "absent" — "absent" covers both "no DMARC
+    # record found at all" and "record found but missing its p= tag".
+    dmarc_policy: str = ""
+    dmarc_rua: bool = False
+    dmarc_ruf: bool = False
+
+    # DNSSEC
+    dnssec_signed: bool = False
+
+    # BIMI / MTA-STS / TLS-RPT
+    has_bimi: bool = False
+    bimi_record: str = ""
+    has_mta_sts: bool = False
+    mta_sts_record: str = ""
+    has_tlsrpt: bool = False
+    tlsrpt_record: str = ""
+
+    # CAA
+    has_caa: bool = False
+    caa_records: list = field(default_factory=list)
+
+    # Error — non-empty means a DNS query failed for this domain; excluded
+    # from the resume "done" set (see dmarc_scanner/db.py) so it gets retried.
+    error: str = ""
