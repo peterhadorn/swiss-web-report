@@ -115,8 +115,17 @@ def test_dkim_selectors_google_workspace():
     assert dkim_selectors_for_provider("google_workspace") == ["google"]
 
 
-def test_dkim_selectors_fallback_for_swiss_hosting_and_self_hosted_and_other():
-    assert dkim_selectors_for_provider("hostpoint") == ["default"]
-    assert dkim_selectors_for_provider("self_hosted") == ["default"]
-    assert dkim_selectors_for_provider("other") == ["default"]
-    assert dkim_selectors_for_provider("") == ["default"]
+def test_dkim_selectors_fallback_checks_common_selectors_for_unrecognized_providers():
+    common = [
+        "default", "selector1", "selector2", "google", "k1", "s1", "s2",
+        "mail", "dkim", "smtp", "key1", "mx",
+    ]
+    assert dkim_selectors_for_provider("hostpoint") == common
+    assert dkim_selectors_for_provider("self_hosted") == common
+    assert dkim_selectors_for_provider("other") == common
+    assert dkim_selectors_for_provider("") == common
+
+
+def test_dkim_selectors_microsoft365_and_google_unaffected_by_fallback_expansion():
+    assert dkim_selectors_for_provider("microsoft365") == ["selector1", "selector2"]
+    assert dkim_selectors_for_provider("google_workspace") == ["google"]

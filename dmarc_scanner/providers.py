@@ -44,6 +44,20 @@ MX_PROVIDER_PATTERNS = [
     ("tophost", ["tophost.ch"]),
 ]
 
+# Best-effort, commonly-observed DKIM selector names across mail systems in
+# general (cPanel/Plesk defaults, popular ESPs) — used as the fallback for
+# every provider without a verified, documented selector convention of its
+# own (i.e. everything except microsoft365/google_workspace below, whose
+# selectors are standardized and genuinely known, not guessed). Not
+# exhaustive: a domain can use any selector name it wants, and this list
+# only catches what's common in practice. Checking N selectors costs N DNS
+# queries per domain instead of 1 — see this plan's Global Constraints for
+# the query-volume tradeoff at full-scan scale.
+_COMMON_DKIM_SELECTORS = [
+    "default", "selector1", "selector2", "google", "k1", "s1", "s2",
+    "mail", "dkim", "smtp", "key1", "mx",
+]
+
 _DKIM_SELECTORS_BY_PROVIDER = {
     "microsoft365": ["selector1", "selector2"],
     "google_workspace": ["google"],
@@ -79,4 +93,4 @@ def fingerprint_mx_provider(mx_hosts: list, domain: str) -> str:
 
 
 def dkim_selectors_for_provider(mx_provider: str) -> list:
-    return _DKIM_SELECTORS_BY_PROVIDER.get(mx_provider, ["default"])
+    return _DKIM_SELECTORS_BY_PROVIDER.get(mx_provider, _COMMON_DKIM_SELECTORS)

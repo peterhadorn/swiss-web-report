@@ -163,7 +163,10 @@ def test_mx_with_no_downstream_records_leaves_everything_else_false():
     result = scan_domain(domain, query)
 
     assert result.mx_provider == "other"
-    assert result.dkim_selectors_checked == ["default"]
+    assert result.dkim_selectors_checked == [
+        "default", "selector1", "selector2", "google", "k1", "s1", "s2",
+        "mail", "dkim", "smtp", "key1", "mx",
+    ]
     assert result.has_spf is False
     assert result.has_dkim is False
     assert result.has_dmarc is False
