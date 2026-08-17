@@ -32,15 +32,11 @@ def test_mx_query_error_skips_everything_and_records_error():
     assert query.calls == [("flaky.ch", "MX")]
 
 
-def test_domain_exists_without_mx_checks_dnssec_spf_and_dmarc_but_not_dkim_or_caa():
-    # SPF/legacy-SPF-RR-type/DMARC now run for every domain that exists,
-    # MX or not — a domain that sends no mail can still be spoofed unless
-    # it explicitly says so (v=spf1 -all / p=reject). DKIM/BIMI/MTA-STS/
-    # TLS-RPT/CAA stay MX-gated since they're meaningless without a mail
-    # server to protect.
+def test_domain_exists_without_mx_checks_dnssec_ns_spf_and_dmarc_but_not_dkim_or_caa():
     query = RecordingQuery({
         ("noemail.ch", "MX"): ("noanswer", []),
         ("noemail.ch", "DS"): ("ok", ["12345 8 2 ABCDEF"]),
+        ("noemail.ch", "NS"): ("ok", ["ns2.example.ch.", "ns1.example.ch."]),
         ("noemail.ch", "TXT"): ("ok", ["v=spf1 -all"]),
         ("noemail.ch", "SPF"): ("noanswer", []),
         ("_dmarc.noemail.ch", "TXT"): ("ok", ["v=DMARC1; p=reject"]),
@@ -50,6 +46,7 @@ def test_domain_exists_without_mx_checks_dnssec_spf_and_dmarc_but_not_dkim_or_ca
     assert result.domain_exists is True
     assert result.has_mx is False
     assert result.dnssec_signed is True
+    assert result.ns_hosts == ["ns1.example.ch", "ns2.example.ch"]
     assert result.has_spf is True
     assert result.spf_all_mechanism == "hardfail"
     assert result.has_legacy_spf_rrtype is False
@@ -58,7 +55,7 @@ def test_domain_exists_without_mx_checks_dnssec_spf_and_dmarc_but_not_dkim_or_ca
     assert result.has_dkim is False
     assert result.has_caa is False
     assert query.calls == [
-        ("noemail.ch", "MX"), ("noemail.ch", "DS"),
+        ("noemail.ch", "MX"), ("noemail.ch", "DS"), ("noemail.ch", "NS"),
         ("noemail.ch", "TXT"), ("noemail.ch", "SPF"), ("_dmarc.noemail.ch", "TXT"),
     ]
 
@@ -94,8 +91,8 @@ def test_null_mx_is_treated_as_no_mail():
     assert result.mx_hosts == []
     assert query.calls == [
         ("nomail-declared.ch", "MX"), ("nomail-declared.ch", "DS"),
-        ("nomail-declared.ch", "TXT"), ("nomail-declared.ch", "SPF"),
-        ("_dmarc.nomail-declared.ch", "TXT"),
+        ("nomail-declared.ch", "NS"), ("nomail-declared.ch", "TXT"),
+        ("nomail-declared.ch", "SPF"), ("_dmarc.nomail-declared.ch", "TXT"),
     ]
 
 

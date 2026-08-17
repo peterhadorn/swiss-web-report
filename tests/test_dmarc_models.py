@@ -32,6 +32,7 @@ def test_default_result_has_safe_defaults():
     assert result.dmarc_rua_domains == []
     assert result.dmarc_ruf_domains == []
     assert result.dnssec_signed is False
+    assert result.ns_hosts == []
     assert result.has_bimi is False
     assert result.bimi_record == ""
     assert result.has_mta_sts is False

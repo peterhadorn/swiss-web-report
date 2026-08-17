@@ -60,6 +60,11 @@ class DmarcScanResult:
     # DNSSEC
     dnssec_signed: bool = False
 
+    # Nameservers — checked unconditionally like DNSSEC, since neither is
+    # mail-specific. Stored raw; reclassify by provider later via UPDATE,
+    # same "store raw, no re-scan needed" philosophy as mx_hosts.
+    ns_hosts: list = field(default_factory=list)
+
     # BIMI / MTA-STS / TLS-RPT
     has_bimi: bool = False
     bimi_record: str = ""

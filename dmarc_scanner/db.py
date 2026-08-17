@@ -20,6 +20,7 @@ COLUMNS = [
     "dmarc_pct INTEGER", "dmarc_sp TEXT", "dmarc_adkim TEXT", "dmarc_aspf TEXT",
     "dmarc_rua_domains TEXT", "dmarc_ruf_domains TEXT",
     "dnssec_signed INTEGER",
+    "ns_hosts TEXT",
     "mx_hosts_unresolvable TEXT", "mx_unresolvable INTEGER",
     "has_bimi INTEGER", "bimi_record TEXT",
     "has_mta_sts INTEGER", "mta_sts_record TEXT",
@@ -34,7 +35,7 @@ EXPECTED_COLUMNS = {col.split()[0] for col in COLUMNS}
 JSON_FIELDS = {
     "mx_hosts", "dkim_selectors_checked", "dkim_selectors_found", "caa_records",
     "dmarc_rua_domains", "dmarc_ruf_domains", "mx_hosts_unresolvable",
-    "tlsa_hosts_checked", "tlsa_hosts_found",
+    "tlsa_hosts_checked", "tlsa_hosts_found", "ns_hosts",
 }
 
 

@@ -51,6 +51,10 @@ def scan_domain(domain: str, query) -> DmarcScanResult:
     ds_status, ds_answers = query(domain, "DS")
     result.dnssec_signed = ds_status == "ok" and bool(ds_answers)
 
+    ns_status, ns_answers = query(domain, "NS")
+    if ns_status == "ok":
+        result.ns_hosts = sorted(h.rstrip(".").lower() for h in ns_answers)
+
     # SPF, the legacy SPF RR type, and DMARC run for every domain that
     # exists in DNS, MX or not — a domain that sends no mail can still be
     # spoofed unless it explicitly locks that down (v=spf1 -all / p=reject).
