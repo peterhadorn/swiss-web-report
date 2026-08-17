@@ -31,6 +31,11 @@ class DmarcScanResult:
     dkim_selectors_checked: list = field(default_factory=list)
     dkim_selectors_found: list = field(default_factory=list)
     has_dkim: bool = False
+    # True if ANY found selector shows the issue — a domain can have
+    # multiple valid selectors, and "at least one problem exists somewhere"
+    # matches the security-audit framing of the rest of this scanner.
+    dkim_testing_mode: bool = False
+    dkim_weak_key: bool = False
 
     # DMARC
     has_dmarc: bool = False

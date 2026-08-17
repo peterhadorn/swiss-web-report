@@ -1,7 +1,7 @@
 from dmarc_scanner.parsers import (
     find_first, is_bimi_record, is_dkim_record, is_dmarc_record,
     is_mta_sts_record, is_spf_record, is_tlsrpt_record,
-    parse_dmarc, parse_mx_answer, parse_spf,
+    parse_dkim, parse_dmarc, parse_mx_answer, parse_spf,
 )
 
 
@@ -243,3 +243,29 @@ def test_parse_dmarc_report_domains_empty_when_no_reporting_tags():
     r = parse_dmarc("v=DMARC1; p=none")
     assert r["rua_domains"] == []
     assert r["ruf_domains"] == []
+
+
+# --- parse_dkim ---------------------------------------------------------
+
+def test_parse_dkim_testing_mode_flag():
+    r = parse_dkim("v=DKIM1; t=y; k=rsa; p=" + "A" * 216)
+    assert r["testing_mode"] is True
+
+
+def test_parse_dkim_not_testing_mode_when_tag_absent():
+    r = parse_dkim("v=DKIM1; k=rsa; p=" + "A" * 216)
+    assert r["testing_mode"] is False
+
+
+def test_parse_dkim_1024_bit_length_key_flagged_weak():
+    # Empirically measured in this session: a 1024-bit RSA
+    # SubjectPublicKeyInfo base64-encodes to 216 characters.
+    r = parse_dkim("v=DKIM1; k=rsa; p=" + "A" * 216)
+    assert r["weak_key"] is True
+
+
+def test_parse_dkim_2048_bit_length_key_not_flagged_weak():
+    # Empirically measured in this session: a 2048-bit RSA
+    # SubjectPublicKeyInfo base64-encodes to 392 characters.
+    r = parse_dkim("v=DKIM1; k=rsa; p=" + "A" * 392)
+    assert r["weak_key"] is False

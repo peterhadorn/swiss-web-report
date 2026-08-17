@@ -18,6 +18,8 @@ def test_default_result_has_safe_defaults():
     assert result.dkim_selectors_checked == []
     assert result.dkim_selectors_found == []
     assert result.has_dkim is False
+    assert result.dkim_testing_mode is False
+    assert result.dkim_weak_key is False
     assert result.has_dmarc is False
     assert result.dmarc_record == ""
     assert result.dmarc_policy == ""

@@ -14,6 +14,7 @@ COLUMNS = [
     "has_spf INTEGER", "spf_record TEXT", "spf_all_mechanism TEXT",
     "spf_lookup_count INTEGER", "spf_near_limit INTEGER", "has_legacy_spf_rrtype INTEGER",
     "dkim_selectors_checked TEXT", "dkim_selectors_found TEXT", "has_dkim INTEGER",
+    "dkim_testing_mode INTEGER", "dkim_weak_key INTEGER",
     "has_dmarc INTEGER", "dmarc_record TEXT", "dmarc_policy TEXT",
     "dmarc_rua INTEGER", "dmarc_ruf INTEGER",
     "dmarc_pct INTEGER", "dmarc_sp TEXT", "dmarc_adkim TEXT", "dmarc_aspf TEXT",

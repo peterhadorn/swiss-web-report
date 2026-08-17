@@ -14,7 +14,7 @@ from dmarc_scanner.models import DmarcScanResult
 from dmarc_scanner.parsers import (
     find_first, is_bimi_record, is_dkim_record, is_dmarc_record,
     is_mta_sts_record, is_spf_record, is_tlsrpt_record,
-    parse_dmarc, parse_mx_answer, parse_spf,
+    parse_dkim, parse_dmarc, parse_mx_answer, parse_spf,
 )
 from dmarc_scanner.providers import dkim_selectors_for_provider, fingerprint_mx_provider
 
@@ -94,12 +94,25 @@ def scan_domain(domain: str, query) -> DmarcScanResult:
     selectors = dkim_selectors_for_provider(result.mx_provider)
     result.dkim_selectors_checked = selectors
     found_selectors = []
+    weak_key_found = False
+    testing_mode_found = False
     for selector in selectors:
         dkim_status, dkim_answers = query(f"{selector}._domainkey.{domain}", "TXT")
-        if dkim_status == "ok" and find_first(dkim_answers, is_dkim_record):
-            found_selectors.append(selector)
+        if dkim_status != "ok":
+            continue
+        dkim_raw = find_first(dkim_answers, is_dkim_record)
+        if not dkim_raw:
+            continue
+        found_selectors.append(selector)
+        dkim_info = parse_dkim(dkim_raw)
+        if dkim_info["testing_mode"]:
+            testing_mode_found = True
+        if dkim_info["weak_key"]:
+            weak_key_found = True
     result.dkim_selectors_found = found_selectors
     result.has_dkim = bool(found_selectors)
+    result.dkim_testing_mode = testing_mode_found
+    result.dkim_weak_key = weak_key_found
 
     bimi_status, bimi_answers = query(f"default._bimi.{domain}", "TXT")
     if bimi_status == "ok":

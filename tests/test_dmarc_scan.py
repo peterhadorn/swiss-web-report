@@ -125,7 +125,7 @@ def test_full_domain_with_every_record_present():
             "v=spf1 include:spf.protection.outlook.com -all",
         ]),
         (f"selector1._domainkey.{domain}", "TXT"): (
-            "ok", ["v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCB"]),
+            "ok", ["v=DKIM1; k=rsa; p=" + "A" * 392]),
         (f"selector2._domainkey.{domain}", "TXT"): ("noanswer", []),
         (f"_dmarc.{domain}", "TXT"): ("ok", [
             "v=DMARC1; p=reject; rua=mailto:d@dmarcian.com; ruf=mailto:f@secure.ch; "
@@ -153,6 +153,8 @@ def test_full_domain_with_every_record_present():
     assert result.dkim_selectors_checked == ["selector1", "selector2"]
     assert result.dkim_selectors_found == ["selector1"]
     assert result.has_dkim is True
+    assert result.dkim_testing_mode is False
+    assert result.dkim_weak_key is False
 
     assert result.has_dmarc is True
     assert result.dmarc_policy == "reject"
@@ -245,3 +247,25 @@ def test_google_workspace_domain_checks_google_selector_only():
     assert result.has_dkim is True
     dkim_calls = [c for c in query.calls if "_domainkey" in c[0]]
     assert dkim_calls == [(f"google._domainkey.{domain}", "TXT")]
+
+
+def test_dkim_weak_key_and_testing_mode_flagged_when_any_selector_shows_them():
+    domain = "sloppy-dkim.ch"
+    query = RecordingQuery({
+        (domain, "MX"): ("ok", ["10 mail.somehost.example."]),
+        (domain, "DS"): ("noanswer", []),
+        (domain, "TXT"): ("noanswer", []),
+        (domain, "SPF"): ("noanswer", []),
+        (f"_dmarc.{domain}", "TXT"): ("noanswer", []),
+        ("default._domainkey." + domain, "TXT"): (
+            "ok", ["v=DKIM1; t=y; k=rsa; p=" + "A" * 216]),
+        (f"default._bimi.{domain}", "TXT"): ("noanswer", []),
+        (f"_mta-sts.{domain}", "TXT"): ("noanswer", []),
+        (f"_smtp._tls.{domain}", "TXT"): ("noanswer", []),
+        (domain, "CAA"): ("noanswer", []),
+    })
+    result = scan_domain(domain, query)
+
+    assert result.has_dkim is True
+    assert result.dkim_testing_mode is True
+    assert result.dkim_weak_key is True

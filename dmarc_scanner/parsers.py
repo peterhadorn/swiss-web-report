@@ -51,6 +51,30 @@ def is_dkim_record(text: str) -> bool:
     return bool(_parse_tags(text).get("p"))
 
 
+# RSA SubjectPublicKeyInfo DER-encodes to a fixed size per key size,
+# measured empirically: 1024-bit -> 216 base64 characters, 2048-bit -> 392.
+# A p= value shorter than this threshold (comfortably between the two) is
+# almost certainly <=1024-bit, below today's minimum-recommended DKIM key
+# size. This is a length heuristic, not exact bit-counting — the project's
+# existing "rough estimate" pattern (see spf_lookup_count).
+_WEAK_DKIM_KEY_B64_THRESHOLD = 250
+
+
+def parse_dkim(record: str) -> dict:
+    """Depth analysis of an already-confirmed DKIM record.
+
+    Callers must have already run is_dkim_record (guarantees a non-empty
+    p= tag) before calling this — an empty p= means a revoked key, a
+    different concept from "weak key" and out of scope here.
+    """
+    tags = _parse_tags(record)
+    p_value = tags.get("p", "")
+    return {
+        "testing_mode": tags.get("t", "").lower() == "y",
+        "weak_key": 0 < len(p_value) < _WEAK_DKIM_KEY_B64_THRESHOLD,
+    }
+
+
 def find_first(records: list, predicate: Callable[[str], bool]) -> Optional[str]:
     for record in records:
         if predicate(record):
