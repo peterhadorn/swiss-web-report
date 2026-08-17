@@ -89,3 +89,28 @@ def test_run_retries_domains_that_previously_errored(tmp_path):
     assert row[0] == ""
     assert row[1] == 1
     conn.close()
+
+
+def test_run_records_error_row_when_scan_domain_raises_unexpectedly(tmp_path):
+    # Regression test: if scan_domain crashes outright (a bug, not a
+    # handled DNS status), the domain must still be written to the DB with
+    # an error set — not silently dropped from both the DB and the run's
+    # counts. A malformed MX answer with no whitespace makes parse_mx_answer
+    # raise ValueError while unpacking, simulating an unanticipated crash.
+    db_path = str(tmp_path / "dmarc.db")
+
+    def crashing_query(name, rdtype):
+        if rdtype == "MX":
+            return "ok", ["malformed-mx-answer-with-no-space"]
+        return "noanswer", []
+
+    run(["crash.ch"], db_path, concurrency=1, query_fn=crashing_query)
+
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT error FROM dmarc_scan_results WHERE domain = 'crash.ch'"
+    ).fetchone()
+    assert row is not None
+    assert row[0].startswith("scan_exception")
+    assert get_done_domains(conn) == set()
+    conn.close()

@@ -30,10 +30,16 @@ def scan_domain(domain: str, query) -> DmarcScanResult:
     result.domain_exists = True
 
     if mx_status == "ok" and mx_answers:
-        # Filter out RFC 7505 null MX ("0 .", parses to an empty host) — it
-        # means the domain explicitly accepts no mail, not that it has one.
-        hosts = [host for _, host in
-                 (parse_mx_answer(raw) for raw in mx_answers) if host]
+        # Sort by preference (RFC 5321 §5.1: clients MUST try MX hosts in
+        # numerical preference order) so mx_hosts[0] is always the domain's
+        # actual primary mail server — DNS response order is not guaranteed
+        # to match preference order, and provider fingerprinting depends on
+        # this. RFC 7505 null MX ("0 .", parses to an empty host) means the
+        # domain explicitly accepts no mail — filtered out after sorting.
+        parsed = sorted(
+            (parse_mx_answer(raw) for raw in mx_answers), key=lambda pair: pair[0]
+        )
+        hosts = [host for _, host in parsed if host]
         if hosts:
             result.has_mx = True
             result.mx_hosts = hosts

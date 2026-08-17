@@ -60,6 +60,22 @@ def test_null_mx_is_treated_as_no_mail():
     assert query.calls == [("nomail-declared.ch", "MX"), ("nomail-declared.ch", "DS")]
 
 
+def test_mx_hosts_are_sorted_by_preference_not_dns_response_order():
+    # RFC 5321 §5.1: clients MUST try MX hosts in numerical preference
+    # order. DNS servers don't guarantee response order matches preference,
+    # so mx_hosts must be sorted here rather than trusting query() order —
+    # provider fingerprinting (dmarc_scanner/providers.py) depends on
+    # mx_hosts[0] being the true primary.
+    domain = "multi-mx.ch"
+    query = RecordingQuery({
+        (domain, "MX"): ("ok", ["20 backup.example.net.", "10 primary.example.net."]),
+        (domain, "DS"): ("noanswer", []),
+    })
+    result = scan_domain(domain, query)
+
+    assert result.mx_hosts == ["primary.example.net", "backup.example.net"]
+
+
 def test_full_domain_with_every_record_present():
     domain = "secure.ch"
     query = RecordingQuery({

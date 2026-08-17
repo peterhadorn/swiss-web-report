@@ -55,15 +55,23 @@ def _host_matches(host: str, pattern: str) -> bool:
 
 
 def fingerprint_mx_provider(mx_hosts: list, domain: str) -> str:
-    hosts_lower = [h.lower().rstrip(".") for h in mx_hosts]
+    """Classify by the highest-priority MX host that matches anything.
 
-    for provider, patterns in MX_PROVIDER_PATTERNS:
-        for host in hosts_lower:
+    Callers must pass mx_hosts already sorted by MX preference (lowest
+    number first) — this trusts host order as priority order and does not
+    re-sort. Checking hosts in priority order (not MX_PROVIDER_PATTERNS'
+    table order) matters: a domain's primary MX determines its real
+    provider, and a secondary/backup MX (a spam-filtering gateway, a
+    failover relay) must not outrank it just because that provider happens
+    to appear earlier in the table.
+    """
+    hosts_lower = [h.lower().rstrip(".") for h in mx_hosts]
+    domain_lower = domain.lower().rstrip(".")
+
+    for host in hosts_lower:
+        for provider, patterns in MX_PROVIDER_PATTERNS:
             if any(_host_matches(host, pattern) for pattern in patterns):
                 return provider
-
-    domain_lower = domain.lower().rstrip(".")
-    for host in hosts_lower:
         if host == domain_lower or host.endswith(f".{domain_lower}"):
             return "self_hosted"
 

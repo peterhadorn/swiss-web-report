@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 from dmarc_scanner.db import create_table, get_done_domains, insert_result
+from dmarc_scanner.models import DmarcScanResult
 from dmarc_scanner.resolve import query as real_query
 from dmarc_scanner.scan import scan_domain
 
@@ -78,9 +79,13 @@ def run(
                 try:
                     result = future.result()
                 except Exception as exc:
-                    errors += 1
+                    # scan_domain crashed outright (a bug, not a handled DNS
+                    # error) — record it as an errored row instead of
+                    # silently dropping the domain, so it still shows up in
+                    # analyze_dmarc.py's error count and gets retried on the
+                    # next run via get_done_domains' error != '' exclusion.
                     logger.warning(f"Failed {domain}: {exc}")
-                    continue
+                    result = DmarcScanResult(domain=domain, error=f"scan_exception: {exc}")
 
                 insert_result(conn, result)
                 scanned += 1

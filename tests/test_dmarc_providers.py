@@ -88,6 +88,25 @@ def test_fingerprint_does_not_false_positive_on_unrelated_substring_match():
     assert fingerprint_mx_provider(["mail.halcyon.ch"], "example.ch") == "other"
 
 
+def test_fingerprint_prioritizes_primary_mx_over_pattern_table_order():
+    # Regression test: mx_hosts must be classified by the primary (first,
+    # highest-priority) host, not by whichever provider happens to appear
+    # earliest in MX_PROVIDER_PATTERNS. Here the domain's real provider is
+    # hostpoint; the Microsoft 365 host is only a secondary/backup relay,
+    # and "microsoft365" sits earlier in the table — a naive
+    # table-order-first implementation would wrongly return "microsoft365".
+    hosts = ["mx1.hostpoint.ch", "mail-relay.mail.protection.outlook.com"]
+    assert fingerprint_mx_provider(hosts, "example.ch") == "hostpoint"
+
+
+def test_fingerprint_self_hosted_primary_outranks_third_party_backup():
+    # Same principle, self-hosted case: the domain's own primary MX outranks
+    # a third-party backup MX later in the (caller-supplied, priority-order)
+    # host list.
+    hosts = ["mail.example.ch", "aspmx.l.google.com"]
+    assert fingerprint_mx_provider(hosts, "example.ch") == "self_hosted"
+
+
 def test_dkim_selectors_microsoft365():
     assert dkim_selectors_for_provider("microsoft365") == ["selector1", "selector2"]
 
