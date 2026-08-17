@@ -5,9 +5,10 @@ Production wiring (dmarc_scan.py) passes dmarc_scanner.resolve.query; tests
 pass a fake. SPF, the legacy SPF RR-type-99 check, and DMARC are checked for
 every domain that exists in DNS, regardless of MX — a domain that sends no
 mail can still be spoofed unless it explicitly locks that down. DKIM, BIMI,
-MTA-STS, TLS-RPT, and CAA are only checked for domains that have MX, since
-they're meaningless without a mail server to protect. DNSSEC is checked for
-every domain that exists in DNS, since it isn't mail-specific either.
+MTA-STS, TLS-RPT, CAA, and TLSA (DANE for SMTP, per MX host) are only
+checked for domains that have MX, since they're meaningless without a mail
+server to protect. DNSSEC and NS are checked for every domain that exists
+in DNS, since neither is mail-specific either.
 """
 
 from dmarc_scanner.models import DmarcScanResult
