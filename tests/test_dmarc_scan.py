@@ -272,9 +272,12 @@ def test_dkim_weak_key_and_testing_mode_flagged_when_any_selector_shows_them():
 
 
 def test_dkim_accumulator_across_multiple_selectors():
-    # Regression test: ensures "ANY selector" accumulation logic works.
-    # Two selectors resolve with different flag values; both issues should
-    # be flagged (dkim_testing_mode/dkim_weak_key both True).
+    # Regression test: ensures "ANY selector" accumulation logic (not last-write-wins).
+    # Dirty selector (weak key, testing mode) is processed FIRST; clean selector
+    # (strong key, no testing mode) is processed LAST. A buggy overwrite
+    # (testing_mode_found = dkim_info["testing_mode"] per iteration) would end
+    # up with False/False (clean selector's values overwrite), while correct
+    # accumulation (if dkim_info[X]: found = True) preserves True from the first.
     domain = "mixed-dkim.ch"
     query = RecordingQuery({
         (domain, "MX"): ("ok", ["10 mail.somehost.example."]),
@@ -282,12 +285,12 @@ def test_dkim_accumulator_across_multiple_selectors():
         (domain, "TXT"): ("noanswer", []),
         (domain, "SPF"): ("noanswer", []),
         (f"_dmarc.{domain}", "TXT"): ("noanswer", []),
-        # Selector 1: clean (strong key, no testing mode)
+        # Selector 1 (processed first): problematic (weak key, testing mode)
         (f"default._domainkey.{domain}", "TXT"): (
-            "ok", ["v=DKIM1; k=rsa; p=" + "A" * 392]),
-        # Selector 2: problematic (weak key, testing mode)
-        (f"selector1._domainkey.{domain}", "TXT"): (
             "ok", ["v=DKIM1; t=y; k=rsa; p=" + "A" * 216]),
+        # Selector 2 (processed second/last of the two that resolve): clean
+        (f"selector1._domainkey.{domain}", "TXT"): (
+            "ok", ["v=DKIM1; k=rsa; p=" + "A" * 392]),
         # Remaining selectors for "other" provider fallback
         (f"selector2._domainkey.{domain}", "TXT"): ("noanswer", []),
         (f"google._domainkey.{domain}", "TXT"): ("noanswer", []),
@@ -306,9 +309,10 @@ def test_dkim_accumulator_across_multiple_selectors():
     })
     result = scan_domain(domain, query)
 
-    # Both selectors resolve (default and selector1)
+    # Both selectors resolve (default and selector1, in that processing order)
     assert result.has_dkim is True
     assert result.dkim_selectors_found == ["default", "selector1"]
-    # Accumulator correctly flags both issues (one from each selector)
+    # Correct accumulation: both issues are True (dirty selector set them first)
+    # Buggy overwrite would end up False/False (clean selector, processed last, would overwrite)
     assert result.dkim_testing_mode is True
     assert result.dkim_weak_key is True
