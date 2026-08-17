@@ -3,7 +3,7 @@ import dns.resolver
 import pytest
 
 import dmarc_scanner.resolve as resolve_module
-from dmarc_scanner.resolve import query
+from dmarc_scanner.resolve import configure_batch_pool_size, query, query_batch
 
 
 class FakeTxtRdata:
@@ -92,3 +92,71 @@ def test_make_resolver_enables_rotation_across_nameservers():
     # 250-400 concurrent threads.
     resolver = resolve_module._make_resolver()
     assert resolver.rotate is True
+
+
+# --- query_batch --------------------------------------------------------
+
+def test_query_batch_empty_list_returns_empty_dict():
+    assert query_batch([]) == {}
+
+
+def test_query_batch_runs_multiple_queries_and_returns_dict_keyed_by_pair(monkeypatch):
+    def effect(name, rdtype):
+        if rdtype == "MX":
+            return [FakeRdata(f"10 mail.{name}.")]
+        return [FakeTxtRdata(f"v=spf1 for {name}")]
+    _patch_resolver(monkeypatch, effect)
+
+    results = query_batch([("a.ch", "MX"), ("b.ch", "TXT")])
+
+    assert results[("a.ch", "MX")] == ("ok", ["10 mail.a.ch."])
+    assert results[("b.ch", "TXT")] == ("ok", ["v=spf1 for b.ch"])
+
+
+def test_query_batch_preserves_per_pair_status_independently(monkeypatch):
+    def effect(name, rdtype):
+        if name == "exists.ch":
+            return [FakeRdata("10 mail.exists.ch.")]
+        raise dns.resolver.NXDOMAIN()
+    _patch_resolver(monkeypatch, effect)
+
+    results = query_batch([("exists.ch", "MX"), ("missing.ch", "MX")])
+
+    assert results[("exists.ch", "MX")] == ("ok", ["10 mail.exists.ch."])
+    assert results[("missing.ch", "MX")] == ("nxdomain", [])
+
+
+def test_configure_batch_pool_size_updates_before_pool_created(monkeypatch):
+    monkeypatch.setattr(resolve_module, "_batch_pool", None)
+    original_size = resolve_module._BATCH_POOL_SIZE
+    try:
+        configure_batch_pool_size(123)
+        assert resolve_module._BATCH_POOL_SIZE == 123
+    finally:
+        resolve_module._BATCH_POOL_SIZE = original_size
+
+
+def test_configure_batch_pool_size_raises_once_pool_already_created(monkeypatch):
+    monkeypatch.setattr(resolve_module, "_batch_pool", object())
+    with pytest.raises(RuntimeError):
+        configure_batch_pool_size(456)
+
+
+def test_query_batch_runs_concurrently_not_sequentially(monkeypatch):
+    # If each query blocked for 0.2s and query_batch ran them sequentially,
+    # 20 queries would take >=4s. Concurrent execution keeps it well under
+    # that — this is the actual behavior query_batch exists to provide.
+    import time
+
+    def effect(name, rdtype):
+        time.sleep(0.2)
+        return [FakeRdata("10 mail.example.ch.")]
+    _patch_resolver(monkeypatch, effect)
+
+    pairs = [(f"selector{i}.example.ch", "MX") for i in range(20)]
+    start = time.monotonic()
+    results = query_batch(pairs)
+    elapsed = time.monotonic() - start
+
+    assert len(results) == 20
+    assert elapsed < 2.0

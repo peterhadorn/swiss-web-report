@@ -1,5 +1,6 @@
 import sqlite3
 
+import dmarc_scan
 from dmarc_scan import load_domains, run
 from dmarc_scanner.db import get_done_domains
 
@@ -113,4 +114,25 @@ def test_run_records_error_row_when_scan_domain_raises_unexpectedly(tmp_path):
     assert row is not None
     assert row[0].startswith("scan_exception")
     assert get_done_domains(conn) == set()
+    conn.close()
+
+
+def test_run_with_fake_query_fn_never_uses_the_real_query_batch(tmp_path, monkeypatch):
+    # Safety property: a caller supplying a fake query_fn but no
+    # query_batch_fn must get scan_domain's safe sequential fallback
+    # (derived from that same fake), never dmarc_scanner.resolve's real,
+    # network-touching query_batch. If run() defaulted query_batch_fn to the
+    # real one whenever it's simply unset (rather than only when query_fn is
+    # ALSO real), every existing fake-query_fn test above would silently
+    # start making real DNS calls through the batch path.
+    def exploding_real_batch(pairs):
+        raise AssertionError("real query_batch must never run when query_fn is faked")
+
+    monkeypatch.setattr(dmarc_scan, "real_query_batch", exploding_real_batch)
+
+    db_path = str(tmp_path / "dmarc.db")
+    run(["a.ch"], db_path, concurrency=1, query_fn=_fake_query_factory())
+
+    conn = sqlite3.connect(db_path)
+    assert get_done_domains(conn) == {"a.ch"}
     conn.close()

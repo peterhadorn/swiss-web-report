@@ -447,3 +447,72 @@ def test_tlsa_absent_when_no_tlsa_record():
     assert result.tlsa_hosts_checked == ["mail.no-dane.ch"]
     assert result.tlsa_hosts_found == []
     assert result.has_tlsa is False
+
+
+# --- query_batch integration ---------------------------------------------
+
+def test_scan_domain_uses_provided_query_batch_for_dkim_selectors():
+    # When a query_batch is supplied, scan_domain must actually call it for
+    # the DKIM selector group (not silently fall back to sequential query()
+    # calls for it) — this is the whole point of the parallelization.
+    domain = "batch-test.ch"
+    query = RecordingQuery({(domain, "MX"): ("ok", ["10 mail.somehost.example."])})
+    dkim_batch_calls = []
+
+    def fake_query_batch(pairs):
+        result = {}
+        for name, rdtype in pairs:
+            if "_domainkey." in name:
+                dkim_batch_calls.append((name, rdtype))
+            result[(name, rdtype)] = ("noanswer", [])
+        return result
+
+    scan_domain(domain, query, fake_query_batch)
+
+    expected_selectors = [
+        "default", "selector1", "selector2", "google", "k1", "s1", "s2",
+        "mail", "dkim", "smtp", "key1", "mx",
+    ]
+    assert dkim_batch_calls == [
+        (f"{s}._domainkey.{domain}", "TXT") for s in expected_selectors
+    ]
+
+
+def test_scan_domain_default_query_batch_derived_from_query_matches_provided_batch_results():
+    # Regression: the no-query_batch-provided fallback and an explicit
+    # equivalent batch function must produce identical DmarcScanResult
+    # objects for the same fixture — the fallback is not a separate code
+    # path with separate behavior, just a different execution strategy.
+    domain = "secure.ch"
+    responses = {
+        (domain, "MX"): ("ok", ["10 secure-ch.mail.protection.outlook.com."]),
+        (domain, "DS"): ("ok", ["12345 8 2 ABCDEF"]),
+        (domain, "TXT"): ("ok", [
+            "google-site-verification=abc123",
+            "v=spf1 include:spf.protection.outlook.com -all",
+        ]),
+        (f"selector1._domainkey.{domain}", "TXT"): (
+            "ok", ["v=DKIM1; k=rsa; p=" + "A" * 392]),
+        (f"selector2._domainkey.{domain}", "TXT"): ("noanswer", []),
+        (f"_dmarc.{domain}", "TXT"): ("ok", [
+            "v=DMARC1; p=reject; rua=mailto:d@secure.ch; ruf=mailto:f@secure.ch",
+        ]),
+        (f"default._bimi.{domain}", "TXT"): ("ok", ["v=BIMI1; l=https://secure.ch/logo.svg;"]),
+        (f"_mta-sts.{domain}", "TXT"): ("ok", ["v=STSv1; id=20260101000000Z;"]),
+        (f"_smtp._tls.{domain}", "TXT"): ("ok", ["v=TLSRPTv1;rua=mailto:tls@secure.ch"]),
+        (domain, "CAA"): ("ok", ['0 issue "letsencrypt.org"']),
+        ("secure-ch.mail.protection.outlook.com", "A"): ("ok", ["203.0.113.1"]),
+        ("_25._tcp.secure-ch.mail.protection.outlook.com", "TLSA"): ("ok", ["3 1 1 abc"]),
+    }
+
+    result_no_batch = scan_domain(domain, RecordingQuery(dict(responses)))
+
+    def explicit_batch(pairs):
+        q = RecordingQuery(dict(responses))
+        return {(n, r): q(n, r) for n, r in pairs}
+
+    result_with_batch = scan_domain(
+        domain, RecordingQuery(dict(responses)), explicit_batch
+    )
+
+    assert result_no_batch == result_with_batch

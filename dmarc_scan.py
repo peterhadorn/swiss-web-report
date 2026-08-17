@@ -14,9 +14,10 @@ import sqlite3
 import time
 from pathlib import Path
 
+from dmarc_scanner import resolve
 from dmarc_scanner.db import create_table, get_done_domains, insert_result
 from dmarc_scanner.models import DmarcScanResult
-from dmarc_scanner.resolve import query as real_query
+from dmarc_scanner.resolve import query as real_query, query_batch as real_query_batch
 from dmarc_scanner.scan import scan_domain
 
 logger = logging.getLogger(__name__)
@@ -36,9 +37,19 @@ def run(
     concurrency: int = 300,
     resume: bool = True,
     query_fn=None,
+    query_batch_fn=None,
 ):
     """Scan all domains with a thread-pool concurrency limit, write to SQLite."""
-    query_fn = query_fn or real_query
+    # Only default to the real, network-touching query_batch when query_fn
+    # is ALSO defaulting to the real resolver — a caller supplying a fake
+    # query_fn (every test) but no query_batch_fn must get scan_domain's own
+    # safe sequential fallback (derived from that same fake), never the real
+    # one, or a "just fake the query" test would silently start making real
+    # DNS calls through the batch path.
+    using_real_query = query_fn is None
+    query_fn = real_query if using_real_query else query_fn
+    if query_batch_fn is None and using_real_query:
+        query_batch_fn = real_query_batch
 
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -72,7 +83,9 @@ def run(
         i = 0
         while i < total:
             batch = domains[i:i + BATCH_SIZE]
-            futures = {pool.submit(scan_domain, d, query_fn): d for d in batch}
+            futures = {
+                pool.submit(scan_domain, d, query_fn, query_batch_fn): d for d in batch
+            }
 
             for future in concurrent.futures.as_completed(futures):
                 domain = futures[future]
@@ -146,11 +159,21 @@ def main():
     parser.add_argument("--input", required=True, help="Domain list file")
     parser.add_argument("--output", default="data/dmarc_scan_results.db", help="SQLite output")
     parser.add_argument("--concurrency", type=int, default=300)
+    parser.add_argument(
+        "--batch-pool-size", type=int, default=None,
+        help="Override the shared within-domain query-batch pool size "
+             "(default: dmarc_scanner.resolve's own default). Tune this "
+             "together with --concurrency, not independently — see "
+             "resolve.py's _BATCH_POOL_SIZE comment.",
+    )
     parser.add_argument("--no-resume", action="store_true")
     parser.add_argument("--shuffle", action="store_true", help="Randomize domain order (seed=42)")
     parser.add_argument("--limit", type=int, help="Limit domains (testing)")
 
     args = parser.parse_args()
+
+    if args.batch_pool_size is not None:
+        resolve.configure_batch_pool_size(args.batch_pool_size)
 
     domains = load_domains(args.input)
     if args.shuffle:
@@ -159,7 +182,10 @@ def main():
     if args.limit:
         domains = domains[:args.limit]
 
-    logger.info(f"Loaded {len(domains)} domains, concurrency={args.concurrency}")
+    logger.info(
+        f"Loaded {len(domains)} domains, concurrency={args.concurrency}, "
+        f"batch_pool_size={args.batch_pool_size or 'default'}"
+    )
 
     run(
         domains,

@@ -5,6 +5,7 @@ objects are not safe to share a cache across threads under this concurrency
 model, so each worker thread lazily builds and reuses its own.
 """
 
+import concurrent.futures
 import threading
 
 import dns.exception
@@ -61,3 +62,71 @@ def query(name: str, rdtype: str) -> tuple:
     if rdtype == "TXT":
         return "ok", [_txt_to_text(r) for r in answer]
     return "ok", [str(r) for r in answer]
+
+
+# One domain's full set of DNS-record checks previously ran as a sequential
+# chain of ~10-27 blocking round-trips inside a single worker thread — the
+# real bottleneck at scale wasn't outer thread count (tested and confirmed:
+# raising it made things worse) but each domain's own critical path. This
+# shared, bounded pool lets independent queries WITHIN one domain's scan run
+# concurrently instead.
+#
+# Sizing this is NOT independent of --concurrency (dmarc_scan.py's outer
+# thread count): once most of a domain's queries route through this pool
+# (roughly 21 of ~27 today — everything except MX, MX-host A/AAAA, and
+# TLSA), aggregate scan throughput follows Little's Law against the
+# AVERAGE in-flight query count, which becomes governed by this pool's
+# size, not by --concurrency. Pairing a small pool with a large outer
+# --concurrency silently caps throughput below what --concurrency alone
+# used to provide. Empirically: outer concurrency 700 alone already
+# triggered a resolver-side error-rate spike, so this should stay near
+# that same total in-flight ceiling (~300), not be raised independently —
+# tune both together, not one in isolation.
+_BATCH_POOL_SIZE = 300
+_batch_pool = None
+_batch_pool_lock = threading.Lock()
+
+
+def configure_batch_pool_size(size: int) -> None:
+    """Override the shared batch pool's worker count before first use.
+
+    Must be called before any query_batch() call in this process — the pool
+    is created lazily on first use and cannot be resized afterward.
+    """
+    global _BATCH_POOL_SIZE
+    if _batch_pool is not None:
+        raise RuntimeError("batch pool already created — call this before any query_batch()")
+    _BATCH_POOL_SIZE = size
+
+
+def _get_batch_pool() -> "concurrent.futures.ThreadPoolExecutor":
+    global _batch_pool
+    if _batch_pool is None:
+        with _batch_pool_lock:
+            if _batch_pool is None:
+                _batch_pool = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=_BATCH_POOL_SIZE
+                )
+    return _batch_pool
+
+
+def query_batch(pairs: list) -> dict:
+    """Run multiple independent DNS queries concurrently.
+
+    pairs: list of (name, rdtype) tuples, must be unique — a duplicate pair
+    fires twice concurrently and the dict keeps whichever result lands last,
+    which is not what the sequential fallback in scan.py would do (it would
+    just call query() twice, keeping the last call's result too, but
+    deterministically). Returns {(name, rdtype): (status, answers)}, same
+    per-pair result shape as query(). Empty input returns {} without
+    touching the pool.
+    """
+    if not pairs:
+        return {}
+    pool = _get_batch_pool()
+    futures = {pool.submit(query, name, rdtype): (name, rdtype) for name, rdtype in pairs}
+    results = {}
+    for future in concurrent.futures.as_completed(futures):
+        pair = futures[future]
+        results[pair] = future.result()
+    return results

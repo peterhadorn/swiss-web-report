@@ -9,6 +9,13 @@ MTA-STS, TLS-RPT, CAA, and TLSA (DANE for SMTP, per MX host) are only
 checked for domains that have MX, since they're meaningless without a mail
 server to protect. DNSSEC and NS are checked for every domain that exists
 in DNS, since neither is mail-specific either.
+
+`query_batch` is also injected, optionally: it runs a list of independent
+(name, rdtype) pairs concurrently instead of one at a time, cutting each
+domain's wall-clock time without changing what gets checked. When not
+provided, a safe sequential fallback is derived from `query` itself — same
+calls, same order, same results — so callers that only know about `query`
+(most existing tests) see identical behavior.
 """
 
 from dmarc_scanner.models import DmarcScanResult
@@ -20,7 +27,10 @@ from dmarc_scanner.parsers import (
 from dmarc_scanner.providers import dkim_selectors_for_provider, fingerprint_mx_provider
 
 
-def scan_domain(domain: str, query) -> DmarcScanResult:
+def scan_domain(domain: str, query, query_batch=None) -> DmarcScanResult:
+    if query_batch is None:
+        query_batch = lambda pairs: {(n, r): query(n, r) for n, r in pairs}
+
     result = DmarcScanResult(domain=domain)
 
     mx_status, mx_answers = query(domain, "MX")
@@ -49,17 +59,25 @@ def scan_domain(domain: str, query) -> DmarcScanResult:
             result.mx_hosts = hosts
             result.mx_provider = fingerprint_mx_provider(hosts, domain)
 
-    ds_status, ds_answers = query(domain, "DS")
+    # DNSSEC, NS, SPF, the legacy SPF RR type, and DMARC are all mutually
+    # independent (none needs another's result) and all run regardless of
+    # MX — batched into one concurrent round instead of 5 sequential ones.
+    group_a = query_batch([
+        (domain, "DS"),
+        (domain, "NS"),
+        (domain, "TXT"),
+        (domain, "SPF"),
+        (f"_dmarc.{domain}", "TXT"),
+    ])
+
+    ds_status, ds_answers = group_a[(domain, "DS")]
     result.dnssec_signed = ds_status == "ok" and bool(ds_answers)
 
-    ns_status, ns_answers = query(domain, "NS")
+    ns_status, ns_answers = group_a[(domain, "NS")]
     if ns_status == "ok":
         result.ns_hosts = sorted(h.rstrip(".").lower() for h in ns_answers)
 
-    # SPF, the legacy SPF RR type, and DMARC run for every domain that
-    # exists in DNS, MX or not — a domain that sends no mail can still be
-    # spoofed unless it explicitly locks that down (v=spf1 -all / p=reject).
-    txt_status, txt_answers = query(domain, "TXT")
+    txt_status, txt_answers = group_a[(domain, "TXT")]
     if txt_status == "ok":
         spf_raw = find_first(txt_answers, is_spf_record)
         if spf_raw:
@@ -70,10 +88,10 @@ def scan_domain(domain: str, query) -> DmarcScanResult:
             result.spf_lookup_count = spf["lookup_count"]
             result.spf_near_limit = spf["near_limit"]
 
-    legacy_spf_status, legacy_spf_answers = query(domain, "SPF")
+    legacy_spf_status, legacy_spf_answers = group_a[(domain, "SPF")]
     result.has_legacy_spf_rrtype = legacy_spf_status == "ok" and bool(legacy_spf_answers)
 
-    dmarc_status, dmarc_answers = query(f"_dmarc.{domain}", "TXT")
+    dmarc_status, dmarc_answers = group_a[(f"_dmarc.{domain}", "TXT")]
     dmarc_raw = find_first(dmarc_answers, is_dmarc_record) if dmarc_status == "ok" else None
     if dmarc_raw:
         result.has_dmarc = True
@@ -123,11 +141,14 @@ def scan_domain(domain: str, query) -> DmarcScanResult:
 
     selectors = dkim_selectors_for_provider(result.mx_provider)
     result.dkim_selectors_checked = selectors
+    dkim_results = query_batch(
+        [(f"{selector}._domainkey.{domain}", "TXT") for selector in selectors]
+    )
     found_selectors = []
     weak_key_found = False
     testing_mode_found = False
     for selector in selectors:
-        dkim_status, dkim_answers = query(f"{selector}._domainkey.{domain}", "TXT")
+        dkim_status, dkim_answers = dkim_results[(f"{selector}._domainkey.{domain}", "TXT")]
         if dkim_status != "ok":
             continue
         dkim_raw = find_first(dkim_answers, is_dkim_record)
@@ -144,28 +165,37 @@ def scan_domain(domain: str, query) -> DmarcScanResult:
     result.dkim_testing_mode = testing_mode_found
     result.dkim_weak_key = weak_key_found
 
-    bimi_status, bimi_answers = query(f"default._bimi.{domain}", "TXT")
+    # BIMI, MTA-STS, TLS-RPT, and CAA are four mutually independent checks —
+    # none depends on another's result, so batch them into one round too.
+    group_c = query_batch([
+        (f"default._bimi.{domain}", "TXT"),
+        (f"_mta-sts.{domain}", "TXT"),
+        (f"_smtp._tls.{domain}", "TXT"),
+        (domain, "CAA"),
+    ])
+
+    bimi_status, bimi_answers = group_c[(f"default._bimi.{domain}", "TXT")]
     if bimi_status == "ok":
         bimi_raw = find_first(bimi_answers, is_bimi_record)
         if bimi_raw:
             result.has_bimi = True
             result.bimi_record = bimi_raw
 
-    mta_status, mta_answers = query(f"_mta-sts.{domain}", "TXT")
+    mta_status, mta_answers = group_c[(f"_mta-sts.{domain}", "TXT")]
     if mta_status == "ok":
         mta_raw = find_first(mta_answers, is_mta_sts_record)
         if mta_raw:
             result.has_mta_sts = True
             result.mta_sts_record = mta_raw
 
-    tlsrpt_status, tlsrpt_answers = query(f"_smtp._tls.{domain}", "TXT")
+    tlsrpt_status, tlsrpt_answers = group_c[(f"_smtp._tls.{domain}", "TXT")]
     if tlsrpt_status == "ok":
         tlsrpt_raw = find_first(tlsrpt_answers, is_tlsrpt_record)
         if tlsrpt_raw:
             result.has_tlsrpt = True
             result.tlsrpt_record = tlsrpt_raw
 
-    caa_status, caa_answers = query(domain, "CAA")
+    caa_status, caa_answers = group_c[(domain, "CAA")]
     if caa_status == "ok" and caa_answers:
         result.has_caa = True
         result.caa_records = caa_answers
