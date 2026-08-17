@@ -22,6 +22,12 @@ def test_default_result_has_safe_defaults():
     assert result.dmarc_policy == ""
     assert result.dmarc_rua is False
     assert result.dmarc_ruf is False
+    assert result.dmarc_pct == 100
+    assert result.dmarc_sp == ""
+    assert result.dmarc_adkim == "r"
+    assert result.dmarc_aspf == "r"
+    assert result.dmarc_rua_domains == []
+    assert result.dmarc_ruf_domains == []
     assert result.dnssec_signed is False
     assert result.has_bimi is False
     assert result.bimi_record == ""

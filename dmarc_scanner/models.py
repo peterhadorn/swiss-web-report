@@ -37,6 +37,12 @@ class DmarcScanResult:
     dmarc_policy: str = ""
     dmarc_rua: bool = False
     dmarc_ruf: bool = False
+    dmarc_pct: int = 100  # RFC 7489 default when pct= is absent
+    dmarc_sp: str = ""  # subdomain policy; "" means "inherits p=" (tag absent)
+    dmarc_adkim: str = "r"  # DKIM alignment mode: r=relaxed (default), s=strict
+    dmarc_aspf: str = "r"  # SPF alignment mode: r=relaxed (default), s=strict
+    dmarc_rua_domains: list = field(default_factory=list)  # domains rua= reports go to
+    dmarc_ruf_domains: list = field(default_factory=list)  # domains ruf= reports go to
 
     # DNSSEC
     dnssec_signed: bool = False

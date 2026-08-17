@@ -107,11 +107,45 @@ def parse_spf(record: str) -> dict:
     }
 
 
+def _extract_report_domains(tag_value: str) -> list:
+    """'mailto:a@vendor.com,mailto:b@x.ch!10m' -> ['vendor.com', 'x.ch']
+
+    RFC 7489 §6.2: rua=/ruf= values are comma-separated URIs, each optionally
+    suffixed with "!<size>" (a report-size cap) that must be stripped before
+    extracting the domain. Handles mailto: (the overwhelming majority in
+    practice) and any other scheme://host URI form.
+    """
+    domains = []
+    for uri in tag_value.split(","):
+        uri = uri.strip().split("!", 1)[0]
+        if uri.lower().startswith("mailto:"):
+            addr = uri[len("mailto:"):]
+            if "@" in addr:
+                domains.append(addr.rsplit("@", 1)[1].lower())
+        elif "://" in uri:
+            after_scheme = uri.split("://", 1)[1]
+            host = after_scheme.split("/", 1)[0]
+            if host:
+                domains.append(host.lower())
+    return domains
+
+
 def parse_dmarc(record: str) -> dict:
     tags = _parse_tags(record)
     policy = tags.get("p", "").lower() or "absent"
+    pct_raw = tags.get("pct", "")
+    try:
+        pct = int(pct_raw)
+    except ValueError:
+        pct = 100
     return {
         "policy": policy,
         "has_rua": bool(tags.get("rua")),
         "has_ruf": bool(tags.get("ruf")),
+        "pct": pct,
+        "sp": tags.get("sp", "").lower(),
+        "adkim": tags.get("adkim", "r").lower(),
+        "aspf": tags.get("aspf", "r").lower(),
+        "rua_domains": _extract_report_domains(tags.get("rua", "")),
+        "ruf_domains": _extract_report_domains(tags.get("ruf", "")),
     }

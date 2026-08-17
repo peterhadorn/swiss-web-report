@@ -89,7 +89,8 @@ def test_full_domain_with_every_record_present():
             "ok", ["v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCB"]),
         (f"selector2._domainkey.{domain}", "TXT"): ("noanswer", []),
         (f"_dmarc.{domain}", "TXT"): ("ok", [
-            "v=DMARC1; p=reject; rua=mailto:d@secure.ch; ruf=mailto:f@secure.ch",
+            "v=DMARC1; p=reject; rua=mailto:d@dmarcian.com; ruf=mailto:f@secure.ch; "
+            "pct=50; sp=quarantine; adkim=s; aspf=s",
         ]),
         (f"default._bimi.{domain}", "TXT"): ("ok", ["v=BIMI1; l=https://secure.ch/logo.svg;"]),
         (f"_mta-sts.{domain}", "TXT"): ("ok", ["v=STSv1; id=20260101000000Z;"]),
@@ -118,6 +119,12 @@ def test_full_domain_with_every_record_present():
     assert result.dmarc_policy == "reject"
     assert result.dmarc_rua is True
     assert result.dmarc_ruf is True
+    assert result.dmarc_pct == 50
+    assert result.dmarc_sp == "quarantine"
+    assert result.dmarc_adkim == "s"
+    assert result.dmarc_aspf == "s"
+    assert result.dmarc_rua_domains == ["dmarcian.com"]
+    assert result.dmarc_ruf_domains == ["secure.ch"]
 
     assert result.has_bimi is True
     assert result.has_mta_sts is True

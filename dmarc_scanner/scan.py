@@ -81,6 +81,12 @@ def scan_domain(domain: str, query) -> DmarcScanResult:
         result.dmarc_policy = dmarc["policy"]
         result.dmarc_rua = dmarc["has_rua"]
         result.dmarc_ruf = dmarc["has_ruf"]
+        result.dmarc_pct = dmarc["pct"]
+        result.dmarc_sp = dmarc["sp"]
+        result.dmarc_adkim = dmarc["adkim"]
+        result.dmarc_aspf = dmarc["aspf"]
+        result.dmarc_rua_domains = dmarc["rua_domains"]
+        result.dmarc_ruf_domains = dmarc["ruf_domains"]
     else:
         # No DMARC record found at all — same "not protected" bucket as a
         # record present but missing its p= tag (parse_dmarc's "absent").

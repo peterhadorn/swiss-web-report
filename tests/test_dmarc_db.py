@@ -72,6 +72,23 @@ def test_list_fields_round_trip_as_json(conn):
     assert json.loads(row[3]) == ['0 issue "letsencrypt.org"']
 
 
+def test_dmarc_report_domain_list_fields_round_trip_as_json(conn):
+    create_table(conn)
+    result = DmarcScanResult(
+        domain="a.ch",
+        dmarc_rua_domains=["dmarcian.com", "vendor-a.com"],
+        dmarc_ruf_domains=["vendor-b.net"],
+    )
+    insert_result(conn, result)
+    conn.commit()
+
+    row = conn.execute(
+        "SELECT dmarc_rua_domains, dmarc_ruf_domains FROM dmarc_scan_results WHERE domain = 'a.ch'"
+    ).fetchone()
+    assert json.loads(row[0]) == ["dmarcian.com", "vendor-a.com"]
+    assert json.loads(row[1]) == ["vendor-b.net"]
+
+
 def test_get_done_domains_excludes_errored_rows(conn):
     # A domain that errored is written to the DB (so the DB reflects every
     # attempt) but must NOT count as "done" — a later run should retry it

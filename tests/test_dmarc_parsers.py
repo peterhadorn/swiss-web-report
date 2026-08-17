@@ -160,12 +160,16 @@ def test_parse_spf_near_limit_flag():
 
 def test_parse_dmarc_reject_with_rua_and_ruf():
     r = parse_dmarc("v=DMARC1; p=reject; rua=mailto:d@example.ch; ruf=mailto:f@example.ch")
-    assert r == {"policy": "reject", "has_rua": True, "has_ruf": True}
+    assert r["policy"] == "reject"
+    assert r["has_rua"] is True
+    assert r["has_ruf"] is True
 
 
 def test_parse_dmarc_none_without_reporting():
     r = parse_dmarc("v=DMARC1; p=none;")
-    assert r == {"policy": "none", "has_rua": False, "has_ruf": False}
+    assert r["policy"] == "none"
+    assert r["has_rua"] is False
+    assert r["has_ruf"] is False
 
 
 def test_parse_dmarc_quarantine_case_insensitive_tag():
@@ -177,3 +181,65 @@ def test_parse_dmarc_quarantine_case_insensitive_tag():
 def test_parse_dmarc_missing_policy_tag_is_absent():
     r = parse_dmarc("v=DMARC1; rua=mailto:d@example.ch")
     assert r["policy"] == "absent"
+
+
+def test_parse_dmarc_pct_defaults_to_100_when_absent():
+    r = parse_dmarc("v=DMARC1; p=reject")
+    assert r["pct"] == 100
+
+
+def test_parse_dmarc_pct_parses_explicit_value():
+    r = parse_dmarc("v=DMARC1; p=reject; pct=25")
+    assert r["pct"] == 25
+
+
+def test_parse_dmarc_pct_falls_back_to_100_on_garbage_value():
+    r = parse_dmarc("v=DMARC1; p=reject; pct=not-a-number")
+    assert r["pct"] == 100
+
+
+def test_parse_dmarc_sp_defaults_to_empty_when_absent():
+    r = parse_dmarc("v=DMARC1; p=reject")
+    assert r["sp"] == ""
+
+
+def test_parse_dmarc_sp_parses_explicit_value():
+    r = parse_dmarc("v=DMARC1; p=quarantine; sp=reject")
+    assert r["sp"] == "reject"
+
+
+def test_parse_dmarc_alignment_defaults_to_relaxed():
+    r = parse_dmarc("v=DMARC1; p=reject")
+    assert r["adkim"] == "r"
+    assert r["aspf"] == "r"
+
+
+def test_parse_dmarc_alignment_parses_strict():
+    r = parse_dmarc("v=DMARC1; p=reject; adkim=s; aspf=s")
+    assert r["adkim"] == "s"
+    assert r["aspf"] == "s"
+
+
+def test_parse_dmarc_extracts_single_rua_domain():
+    r = parse_dmarc("v=DMARC1; p=reject; rua=mailto:d@dmarcian.com")
+    assert r["rua_domains"] == ["dmarcian.com"]
+
+
+def test_parse_dmarc_extracts_multiple_rua_domains_and_strips_size_suffix():
+    # RFC 7489 §6.2: a reporting URI may carry an optional "!<size>" cap
+    # (e.g. "!10m") that must not leak into the extracted domain.
+    r = parse_dmarc(
+        "v=DMARC1; p=reject; rua=mailto:a@vendor-a.com!10m,mailto:b@example.ch"
+    )
+    assert r["rua_domains"] == ["vendor-a.com", "example.ch"]
+
+
+def test_parse_dmarc_extracts_ruf_domain():
+    r = parse_dmarc("v=DMARC1; p=reject; ruf=mailto:forensics@vendor-b.net")
+    assert r["ruf_domains"] == ["vendor-b.net"]
+
+
+def test_parse_dmarc_report_domains_empty_when_no_reporting_tags():
+    r = parse_dmarc("v=DMARC1; p=none")
+    assert r["rua_domains"] == []
+    assert r["ruf_domains"] == []

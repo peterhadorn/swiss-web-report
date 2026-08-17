@@ -16,6 +16,8 @@ COLUMNS = [
     "dkim_selectors_checked TEXT", "dkim_selectors_found TEXT", "has_dkim INTEGER",
     "has_dmarc INTEGER", "dmarc_record TEXT", "dmarc_policy TEXT",
     "dmarc_rua INTEGER", "dmarc_ruf INTEGER",
+    "dmarc_pct INTEGER", "dmarc_sp TEXT", "dmarc_adkim TEXT", "dmarc_aspf TEXT",
+    "dmarc_rua_domains TEXT", "dmarc_ruf_domains TEXT",
     "dnssec_signed INTEGER",
     "has_bimi INTEGER", "bimi_record TEXT",
     "has_mta_sts INTEGER", "mta_sts_record TEXT",
@@ -26,7 +28,10 @@ COLUMNS = [
 ]
 
 EXPECTED_COLUMNS = {col.split()[0] for col in COLUMNS}
-JSON_FIELDS = {"mx_hosts", "dkim_selectors_checked", "dkim_selectors_found", "caa_records"}
+JSON_FIELDS = {
+    "mx_hosts", "dkim_selectors_checked", "dkim_selectors_found", "caa_records",
+    "dmarc_rua_domains", "dmarc_ruf_domains",
+}
 
 
 def _get_existing_columns(conn: sqlite3.Connection) -> set:
