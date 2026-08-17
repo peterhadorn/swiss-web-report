@@ -23,6 +23,9 @@ class DmarcScanResult:
     # limit while spf_near_limit stays False. Rough estimate, by design.
     spf_lookup_count: int = 0
     spf_near_limit: bool = False  # True if spf_lookup_count >= 8
+    # RFC 7208 obsoleted the dedicated SPF RR type (99) in favor of TXT-only
+    # — True means the domain still publishes the deprecated format.
+    has_legacy_spf_rrtype: bool = False
 
     # DKIM (provider-aware selector guess only)
     dkim_selectors_checked: list = field(default_factory=list)

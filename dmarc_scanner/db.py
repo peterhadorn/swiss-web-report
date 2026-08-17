@@ -12,7 +12,7 @@ COLUMNS = [
     "domain_exists INTEGER",
     "has_mx INTEGER", "mx_hosts TEXT", "mx_provider TEXT",
     "has_spf INTEGER", "spf_record TEXT", "spf_all_mechanism TEXT",
-    "spf_lookup_count INTEGER", "spf_near_limit INTEGER",
+    "spf_lookup_count INTEGER", "spf_near_limit INTEGER", "has_legacy_spf_rrtype INTEGER",
     "dkim_selectors_checked TEXT", "dkim_selectors_found TEXT", "has_dkim INTEGER",
     "has_dmarc INTEGER", "dmarc_record TEXT", "dmarc_policy TEXT",
     "dmarc_rua INTEGER", "dmarc_ruf INTEGER",

@@ -2,9 +2,12 @@
 
 `query` is injected — this module never touches the network directly.
 Production wiring (dmarc_scan.py) passes dmarc_scanner.resolve.query; tests
-pass a fake. SPF/DKIM/DMARC/BIMI/MTA-STS/TLS-RPT/CAA are only checked for
-domains that have MX records; DNSSEC is checked for every domain that exists
-in DNS, since it isn't mail-specific.
+pass a fake. SPF, the legacy SPF RR-type-99 check, and DMARC are checked for
+every domain that exists in DNS, regardless of MX — a domain that sends no
+mail can still be spoofed unless it explicitly locks that down. DKIM, BIMI,
+MTA-STS, TLS-RPT, and CAA are only checked for domains that have MX, since
+they're meaningless without a mail server to protect. DNSSEC is checked for
+every domain that exists in DNS, since it isn't mail-specific either.
 """
 
 from dmarc_scanner.models import DmarcScanResult
@@ -48,9 +51,9 @@ def scan_domain(domain: str, query) -> DmarcScanResult:
     ds_status, ds_answers = query(domain, "DS")
     result.dnssec_signed = ds_status == "ok" and bool(ds_answers)
 
-    if not result.has_mx:
-        return result
-
+    # SPF, the legacy SPF RR type, and DMARC run for every domain that
+    # exists in DNS, MX or not — a domain that sends no mail can still be
+    # spoofed unless it explicitly locks that down (v=spf1 -all / p=reject).
     txt_status, txt_answers = query(domain, "TXT")
     if txt_status == "ok":
         spf_raw = find_first(txt_answers, is_spf_record)
@@ -62,15 +65,8 @@ def scan_domain(domain: str, query) -> DmarcScanResult:
             result.spf_lookup_count = spf["lookup_count"]
             result.spf_near_limit = spf["near_limit"]
 
-    selectors = dkim_selectors_for_provider(result.mx_provider)
-    result.dkim_selectors_checked = selectors
-    found_selectors = []
-    for selector in selectors:
-        dkim_status, dkim_answers = query(f"{selector}._domainkey.{domain}", "TXT")
-        if dkim_status == "ok" and find_first(dkim_answers, is_dkim_record):
-            found_selectors.append(selector)
-    result.dkim_selectors_found = found_selectors
-    result.has_dkim = bool(found_selectors)
+    legacy_spf_status, legacy_spf_answers = query(domain, "SPF")
+    result.has_legacy_spf_rrtype = legacy_spf_status == "ok" and bool(legacy_spf_answers)
 
     dmarc_status, dmarc_answers = query(f"_dmarc.{domain}", "TXT")
     dmarc_raw = find_first(dmarc_answers, is_dmarc_record) if dmarc_status == "ok" else None
@@ -91,6 +87,19 @@ def scan_domain(domain: str, query) -> DmarcScanResult:
         # No DMARC record found at all — same "not protected" bucket as a
         # record present but missing its p= tag (parse_dmarc's "absent").
         result.dmarc_policy = "absent"
+
+    if not result.has_mx:
+        return result
+
+    selectors = dkim_selectors_for_provider(result.mx_provider)
+    result.dkim_selectors_checked = selectors
+    found_selectors = []
+    for selector in selectors:
+        dkim_status, dkim_answers = query(f"{selector}._domainkey.{domain}", "TXT")
+        if dkim_status == "ok" and find_first(dkim_answers, is_dkim_record):
+            found_selectors.append(selector)
+    result.dkim_selectors_found = found_selectors
+    result.has_dkim = bool(found_selectors)
 
     bimi_status, bimi_answers = query(f"default._bimi.{domain}", "TXT")
     if bimi_status == "ok":

@@ -14,6 +14,7 @@ def test_default_result_has_safe_defaults():
     assert result.spf_all_mechanism == ""
     assert result.spf_lookup_count == 0
     assert result.spf_near_limit is False
+    assert result.has_legacy_spf_rrtype is False
     assert result.dkim_selectors_checked == []
     assert result.dkim_selectors_found == []
     assert result.has_dkim is False
