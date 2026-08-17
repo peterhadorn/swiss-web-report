@@ -1,0 +1,182 @@
+from dmarc_scanner.scan import scan_domain
+
+
+class RecordingQuery:
+    """Fake query() that returns canned (status, answers) by (name, rdtype)
+    and records every call, so tests can assert which lookups did/didn't run.
+    """
+
+    def __init__(self, responses):
+        self.responses = responses
+        self.calls = []
+
+    def __call__(self, name, rdtype):
+        self.calls.append((name, rdtype))
+        return self.responses.get((name, rdtype), ("noanswer", []))
+
+
+def test_nxdomain_domain_skips_everything():
+    query = RecordingQuery({("dead.ch", "MX"): ("nxdomain", [])})
+    result = scan_domain("dead.ch", query)
+
+    assert result.domain_exists is False
+    assert result.has_mx is False
+    assert query.calls == [("dead.ch", "MX")]
+
+
+def test_mx_query_error_skips_everything_and_records_error():
+    query = RecordingQuery({("flaky.ch", "MX"): ("error", [])})
+    result = scan_domain("flaky.ch", query)
+
+    assert result.error == "mx_query_error"
+    assert query.calls == [("flaky.ch", "MX")]
+
+
+def test_domain_exists_without_mx_checks_dnssec_but_not_email_auth():
+    query = RecordingQuery({
+        ("noemail.ch", "MX"): ("noanswer", []),
+        ("noemail.ch", "DS"): ("ok", ["12345 8 2 ABCDEF"]),
+    })
+    result = scan_domain("noemail.ch", query)
+
+    assert result.domain_exists is True
+    assert result.has_mx is False
+    assert result.dnssec_signed is True
+    assert result.has_spf is False
+    assert query.calls == [("noemail.ch", "MX"), ("noemail.ch", "DS")]
+
+
+def test_null_mx_is_treated_as_no_mail():
+    # RFC 7505: "0 ." means the domain explicitly declares it accepts no
+    # mail — must NOT be treated as has_mx=True.
+    query = RecordingQuery({
+        ("nomail-declared.ch", "MX"): ("ok", ["0 ."]),
+        ("nomail-declared.ch", "DS"): ("noanswer", []),
+    })
+    result = scan_domain("nomail-declared.ch", query)
+
+    assert result.has_mx is False
+    assert result.mx_hosts == []
+    assert query.calls == [("nomail-declared.ch", "MX"), ("nomail-declared.ch", "DS")]
+
+
+def test_full_domain_with_every_record_present():
+    domain = "secure.ch"
+    query = RecordingQuery({
+        (domain, "MX"): ("ok", ["10 secure-ch.mail.protection.outlook.com."]),
+        (domain, "DS"): ("ok", ["12345 8 2 ABCDEF"]),
+        (domain, "TXT"): ("ok", [
+            "google-site-verification=abc123",
+            "v=spf1 include:spf.protection.outlook.com -all",
+        ]),
+        (f"selector1._domainkey.{domain}", "TXT"): (
+            "ok", ["v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCB"]),
+        (f"selector2._domainkey.{domain}", "TXT"): ("noanswer", []),
+        (f"_dmarc.{domain}", "TXT"): ("ok", [
+            "v=DMARC1; p=reject; rua=mailto:d@secure.ch; ruf=mailto:f@secure.ch",
+        ]),
+        (f"default._bimi.{domain}", "TXT"): ("ok", ["v=BIMI1; l=https://secure.ch/logo.svg;"]),
+        (f"_mta-sts.{domain}", "TXT"): ("ok", ["v=STSv1; id=20260101000000Z;"]),
+        (f"_smtp._tls.{domain}", "TXT"): ("ok", ["v=TLSRPTv1;rua=mailto:tls@secure.ch"]),
+        (domain, "CAA"): ("ok", ['0 issue "letsencrypt.org"']),
+    })
+
+    result = scan_domain(domain, query)
+
+    assert result.domain_exists is True
+    assert result.has_mx is True
+    assert result.mx_hosts == ["secure-ch.mail.protection.outlook.com"]
+    assert result.mx_provider == "microsoft365"
+    assert result.dnssec_signed is True
+
+    assert result.has_spf is True
+    assert result.spf_all_mechanism == "hardfail"
+    assert result.spf_lookup_count == 1
+    assert result.spf_near_limit is False
+
+    assert result.dkim_selectors_checked == ["selector1", "selector2"]
+    assert result.dkim_selectors_found == ["selector1"]
+    assert result.has_dkim is True
+
+    assert result.has_dmarc is True
+    assert result.dmarc_policy == "reject"
+    assert result.dmarc_rua is True
+    assert result.dmarc_ruf is True
+
+    assert result.has_bimi is True
+    assert result.has_mta_sts is True
+    assert result.has_tlsrpt is True
+    assert result.has_caa is True
+    assert result.caa_records == ['0 issue "letsencrypt.org"']
+
+
+def test_dkim_with_empty_p_tag_is_not_treated_as_found():
+    domain = "revoked.ch"
+    query = RecordingQuery({
+        (domain, "MX"): ("ok", ["10 mail.somehost.example."]),
+        (domain, "DS"): ("noanswer", []),
+        (domain, "TXT"): ("noanswer", []),
+        ("default._domainkey." + domain, "TXT"): ("ok", ["v=DKIM1; k=rsa; p="]),
+        (f"_dmarc.{domain}", "TXT"): ("noanswer", []),
+        (f"default._bimi.{domain}", "TXT"): ("noanswer", []),
+        (f"_mta-sts.{domain}", "TXT"): ("noanswer", []),
+        (f"_smtp._tls.{domain}", "TXT"): ("noanswer", []),
+        (domain, "CAA"): ("noanswer", []),
+    })
+
+    result = scan_domain(domain, query)
+
+    assert result.dkim_selectors_found == []
+    assert result.has_dkim is False
+
+
+def test_mx_with_no_downstream_records_leaves_everything_else_false():
+    domain = "bare.ch"
+    query = RecordingQuery({
+        (domain, "MX"): ("ok", ["10 mail.somehost.example."]),
+        (domain, "DS"): ("noanswer", []),
+        (domain, "TXT"): ("noanswer", []),
+        ("default._domainkey." + domain, "TXT"): ("noanswer", []),
+        (f"_dmarc.{domain}", "TXT"): ("noanswer", []),
+        (f"default._bimi.{domain}", "TXT"): ("noanswer", []),
+        (f"_mta-sts.{domain}", "TXT"): ("noanswer", []),
+        (f"_smtp._tls.{domain}", "TXT"): ("noanswer", []),
+        (domain, "CAA"): ("noanswer", []),
+    })
+
+    result = scan_domain(domain, query)
+
+    assert result.mx_provider == "other"
+    assert result.dkim_selectors_checked == ["default"]
+    assert result.has_spf is False
+    assert result.has_dkim is False
+    assert result.has_dmarc is False
+    assert result.dmarc_policy == "absent"
+    assert result.has_bimi is False
+    assert result.has_mta_sts is False
+    assert result.has_tlsrpt is False
+    assert result.has_caa is False
+
+
+def test_google_workspace_domain_checks_google_selector_only():
+    domain = "gws.ch"
+    query = RecordingQuery({
+        (domain, "MX"): ("ok", ["1 aspmx.l.google.com."]),
+        (domain, "DS"): ("noanswer", []),
+        (domain, "TXT"): ("noanswer", []),
+        (f"google._domainkey.{domain}", "TXT"): (
+            "ok", ["v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCB"]),
+        (f"_dmarc.{domain}", "TXT"): ("noanswer", []),
+        (f"default._bimi.{domain}", "TXT"): ("noanswer", []),
+        (f"_mta-sts.{domain}", "TXT"): ("noanswer", []),
+        (f"_smtp._tls.{domain}", "TXT"): ("noanswer", []),
+        (domain, "CAA"): ("noanswer", []),
+    })
+
+    result = scan_domain(domain, query)
+
+    assert result.mx_provider == "google_workspace"
+    assert result.dkim_selectors_checked == ["google"]
+    assert result.has_dkim is True
+    dkim_calls = [c for c in query.calls if "_domainkey" in c[0]]
+    assert dkim_calls == [(f"google._domainkey.{domain}", "TXT")]
