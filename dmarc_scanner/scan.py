@@ -91,6 +91,31 @@ def scan_domain(domain: str, query) -> DmarcScanResult:
     if not result.has_mx:
         return result
 
+    # "error" (a transient resolver failure) is deliberately NOT treated as
+    # confirmation of non-existence — only "nxdomain" (the name genuinely
+    # doesn't exist) or a clean "noanswer" on both A and AAAA (the name
+    # exists but has no address record) are affirmative dangling-MX
+    # findings. An error on either lookup leaves that host's resolvability
+    # inconclusive, and is silently skipped rather than flagged — the same
+    # spirit as the rest of the scanner never turning a query error into an
+    # affirmative security claim.
+    for host in result.mx_hosts:
+        a_status, a_answers = query(host, "A")
+        if a_status == "ok" and a_answers:
+            continue
+        if a_status == "nxdomain":
+            result.mx_hosts_unresolvable.append(host)
+            continue
+        if a_status == "error":
+            continue
+        aaaa_status, aaaa_answers = query(host, "AAAA")
+        if aaaa_status == "ok" and aaaa_answers:
+            continue
+        if aaaa_status == "error":
+            continue
+        result.mx_hosts_unresolvable.append(host)
+    result.mx_unresolvable = bool(result.mx_hosts_unresolvable)
+
     selectors = dkim_selectors_for_provider(result.mx_provider)
     result.dkim_selectors_checked = selectors
     found_selectors = []

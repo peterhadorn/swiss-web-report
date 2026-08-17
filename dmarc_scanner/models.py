@@ -13,6 +13,11 @@ class DmarcScanResult:
     mx_hosts: list = field(default_factory=list)
     mx_provider: str = ""  # microsoft365, google_workspace, hostpoint, infomaniak,
                             # cyon, self_hosted, other, "" (no MX)
+    # Which mx_hosts entries have neither an A nor an AAAA record — abandoned
+    # mail infra and a potential subdomain-takeover surface, not just an
+    # adoption stat.
+    mx_hosts_unresolvable: list = field(default_factory=list)
+    mx_unresolvable: bool = False  # True if mx_hosts_unresolvable is non-empty
 
     # SPF
     has_spf: bool = False

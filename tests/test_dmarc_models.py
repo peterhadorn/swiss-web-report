@@ -41,3 +41,5 @@ def test_default_result_has_safe_defaults():
     assert result.has_caa is False
     assert result.caa_records == []
     assert result.error == ""
+    assert result.mx_hosts_unresolvable == []
+    assert result.mx_unresolvable is False

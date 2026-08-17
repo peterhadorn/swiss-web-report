@@ -316,3 +316,93 @@ def test_dkim_accumulator_across_multiple_selectors():
     # Buggy overwrite would end up False/False (clean selector, processed last, would overwrite)
     assert result.dkim_testing_mode is True
     assert result.dkim_weak_key is True
+
+
+def test_dangling_mx_host_is_flagged_unresolvable():
+    domain = "abandoned-relay.ch"
+    query = RecordingQuery({
+        (domain, "MX"): ("ok", ["10 mail.gone-forever.example."]),
+        (domain, "DS"): ("noanswer", []),
+        (domain, "TXT"): ("noanswer", []),
+        (domain, "SPF"): ("noanswer", []),
+        (f"_dmarc.{domain}", "TXT"): ("noanswer", []),
+        ("mail.gone-forever.example", "A"): ("nxdomain", []),
+        (f"default._bimi.{domain}", "TXT"): ("noanswer", []),
+        (f"_mta-sts.{domain}", "TXT"): ("noanswer", []),
+        (f"_smtp._tls.{domain}", "TXT"): ("noanswer", []),
+        (domain, "CAA"): ("noanswer", []),
+    })
+    result = scan_domain(domain, query)
+
+    assert result.mx_hosts_unresolvable == ["mail.gone-forever.example"]
+    assert result.mx_unresolvable is True
+
+
+def test_ipv6_only_mx_host_is_resolvable_via_aaaa():
+    domain = "ipv6-only.ch"
+    query = RecordingQuery({
+        (domain, "MX"): ("ok", ["10 mail.ipv6only.example."]),
+        (domain, "DS"): ("noanswer", []),
+        (domain, "TXT"): ("noanswer", []),
+        (domain, "SPF"): ("noanswer", []),
+        (f"_dmarc.{domain}", "TXT"): ("noanswer", []),
+        ("mail.ipv6only.example", "A"): ("noanswer", []),
+        ("mail.ipv6only.example", "AAAA"): ("ok", ["2001:db8::1"]),
+        (f"default._bimi.{domain}", "TXT"): ("noanswer", []),
+        (f"_mta-sts.{domain}", "TXT"): ("noanswer", []),
+        (f"_smtp._tls.{domain}", "TXT"): ("noanswer", []),
+        (domain, "CAA"): ("noanswer", []),
+    })
+    result = scan_domain(domain, query)
+
+    assert result.mx_hosts_unresolvable == []
+    assert result.mx_unresolvable is False
+
+
+def test_transient_dns_error_on_mx_host_is_not_flagged_as_dangling():
+    # A resolver timeout/error is NOT the same as confirmed non-existence.
+    # Treating "error" the same as "nxdomain" would turn ordinary transient
+    # DNS failures into false-positive "abandoned mail infra" security
+    # findings — especially likely at 2.46M-domain scan concurrency, which
+    # is exactly the failure mode the existing error/retry mechanism
+    # (dmarc_scanner/db.py's get_done_domains) exists to handle elsewhere.
+    domain = "flaky-resolver.ch"
+    query = RecordingQuery({
+        (domain, "MX"): ("ok", ["10 mail.flaky-resolver.ch."]),
+        (domain, "DS"): ("noanswer", []),
+        (domain, "TXT"): ("noanswer", []),
+        (domain, "SPF"): ("noanswer", []),
+        (f"_dmarc.{domain}", "TXT"): ("noanswer", []),
+        ("mail.flaky-resolver.ch", "A"): ("error", []),
+        (f"default._bimi.{domain}", "TXT"): ("noanswer", []),
+        (f"_mta-sts.{domain}", "TXT"): ("noanswer", []),
+        (f"_smtp._tls.{domain}", "TXT"): ("noanswer", []),
+        (domain, "CAA"): ("noanswer", []),
+    })
+    result = scan_domain(domain, query)
+
+    assert result.mx_hosts_unresolvable == []
+    assert result.mx_unresolvable is False
+
+
+def test_transient_dns_error_on_aaaa_after_noanswer_a_is_not_flagged_as_dangling():
+    # Same principle, the A-noanswer-then-AAAA-fallback path: an error on
+    # the AAAA lookup is inconclusive, not confirmation of non-existence.
+    domain = "flaky-resolver-aaaa.ch"
+    query = RecordingQuery({
+        (domain, "MX"): ("ok", ["10 mail.flaky-resolver-aaaa.ch."]),
+        (domain, "DS"): ("noanswer", []),
+        (domain, "TXT"): ("noanswer", []),
+        (domain, "SPF"): ("noanswer", []),
+        (f"_dmarc.{domain}", "TXT"): ("noanswer", []),
+        ("mail.flaky-resolver-aaaa.ch", "A"): ("noanswer", []),
+        ("mail.flaky-resolver-aaaa.ch", "AAAA"): ("error", []),
+        (f"default._bimi.{domain}", "TXT"): ("noanswer", []),
+        (f"_mta-sts.{domain}", "TXT"): ("noanswer", []),
+        (f"_smtp._tls.{domain}", "TXT"): ("noanswer", []),
+        (domain, "CAA"): ("noanswer", []),
+    })
+    result = scan_domain(domain, query)
+
+    assert result.mx_hosts_unresolvable == []
+    assert result.mx_unresolvable is False
