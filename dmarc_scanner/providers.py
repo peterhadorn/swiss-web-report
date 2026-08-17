@@ -28,7 +28,7 @@ MX_PROVIDER_PATTERNS = [
     ("swisscom", ["swisscom.ch", "bluewin.ch"]),
     ("init7", ["init7.net"]),
     ("greench", ["green.ch"]),
-    ("vtx", ["vtxmail.ch", "vtxnet.ch"]),
+    ("vtx", ["vtxmail.ch", "vtxnet.ch", "vtx.ch"]),
     ("metanet", ["metanet.ch"]),
     ("protonmail", ["protonmail.ch", "proton.me"]),
     ("mailbox_org", ["mailbox.org"]),
@@ -37,6 +37,11 @@ MX_PROVIDER_PATTERNS = [
     ("mimecast", ["mimecast.com"]),
     ("proofpoint", ["pphosted.com"]),
     ("barracuda", ["barracudanetworks.com"]),
+    ("swizzonic", ["swizzonic.ch", "swizzonic.email"]),
+    ("netzone", ["netzone.ch"]),
+    ("iway", ["iway.ch"]),
+    ("hosttech", ["hosttech.ch", "hosttech.eu"]),
+    ("tophost", ["tophost.ch"]),
 ]
 
 _DKIM_SELECTORS_BY_PROVIDER = {

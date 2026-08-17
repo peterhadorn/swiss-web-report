@@ -25,6 +25,33 @@ swiss-web-report/
 └── README.md            # Public-facing documentation
 ```
 
+Companion passive DNS email-security scanner (separate DB, separate CLI):
+
+```
+dmarc_scan.py           # CLI entry point — passive DNS-only scanner
+dmarc_scanner/           # Core package
+│   ├── models.py        # DmarcScanResult dataclass
+│   ├── parsers.py        # SPF/DMARC/BIMI/MTA-STS/TLS-RPT/DKIM record parsing
+│   ├── providers.py      # MX/DKIM provider fingerprinting
+│   ├── resolve.py        # dnspython DNS resolution (thread-local resolver)
+│   └── scan.py            # per-domain orchestration
+analyze_dmarc.py         # Aggregate stats + cold-outreach lead-list query
+data/dmarc_scan_results.db  # Gitignored — sibling DB, not a table in results.db
+```
+
+Run with:
+```bash
+python3 dmarc_scan.py --input data/ch_domains.txt --output data/dmarc_scan_results.db --concurrency 300
+python3 analyze_dmarc.py data/dmarc_scan_results.db
+```
+
+DNS-only: MX, SPF, DKIM (provider-aware selector guess), DMARC, DNSSEC,
+BIMI, MTA-STS, TLS-RPT, CAA. SPF/DKIM/DMARC/BIMI/MTA-STS/TLS-RPT/CAA are only
+checked for domains with MX; DNSSEC is checked for all domains. Never
+connects to the domain's own mail/web servers — public resolvers only.
+Domains that error on a query are retried on the next run rather than
+recorded as permanently done.
+
 ## How to Run
 
 ```bash
@@ -69,9 +96,16 @@ Expected `results.db` size: ~800MB – 1.2GB for the full 2.46M domain set.
 - Only homepage + specific paths (robots.txt, llms.txt, sitemap.xml, impressum/datenschutz variants)
 - Browser User-Agent (standard Chrome UA)
 - Reads robots.txt for data collection (AI bot blocking stats), does not honor Disallow for scanning
+- The companion passive DNS email-security scan (`dmarc_scan.py`) additionally
+  powers a cold-outreach lead list and a public aggregate stat. Per-domain
+  rows stay in the gitignored `data/` directory (same as `results.db`) and
+  are never committed or individually published. It reads only DNS
+  TXT/MX/DS/CAA records the domain's own DNS operator already publishes —
+  no HTTP/TCP connection to the domain itself.
 
 ## Related
 
 - Full plan: `leadgen/plans/2026-04-12-SWISS-WEB-LANDSCAPE-STUDY.md`
 - Results published at: webevolve.ch/studie/
 - Risikomonitor complementary study: risikomonitor.com/news/cybersecurity-studie-schweiz-2026
+- Email-security product exploration: `leadgen/plans/explorations/2026-08-15-swiss-domain-security-product.md`

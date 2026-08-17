@@ -26,6 +26,36 @@ def test_fingerprint_cyon():
     assert fingerprint_mx_provider(hosts, "example.ch") == "cyon"
 
 
+def test_fingerprint_vtx_base_domain():
+    hosts = ["mx2.vtx.ch"]
+    assert fingerprint_mx_provider(hosts, "example.ch") == "vtx"
+
+
+def test_fingerprint_swizzonic():
+    hosts = ["mx.swizzonic.email"]
+    assert fingerprint_mx_provider(hosts, "example.ch") == "swizzonic"
+
+
+def test_fingerprint_netzone():
+    hosts = ["mx.netzone.ch", "mx2.netzone.ch"]
+    assert fingerprint_mx_provider(hosts, "example.ch") == "netzone"
+
+
+def test_fingerprint_iway():
+    hosts = ["elba.iway.ch", "malta.iway.ch"]
+    assert fingerprint_mx_provider(hosts, "example.ch") == "iway"
+
+
+def test_fingerprint_hosttech():
+    hosts = ["mail1.hosttech.eu", "mail2.hosttech.eu"]
+    assert fingerprint_mx_provider(hosts, "example.ch") == "hosttech"
+
+
+def test_fingerprint_tophost():
+    hosts = ["mx01.tophost.ch", "mx02.tophost.ch"]
+    assert fingerprint_mx_provider(hosts, "example.ch") == "tophost"
+
+
 def test_fingerprint_is_case_insensitive():
     hosts = ["EXAMPLE-CH.MAIL.PROTECTION.OUTLOOK.COM"]
     assert fingerprint_mx_provider(hosts, "example.ch") == "microsoft365"
