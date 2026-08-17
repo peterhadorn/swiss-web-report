@@ -1,0 +1,69 @@
+"""MX-hostname provider fingerprinting and DKIM selector strategy.
+
+The MX_PROVIDER_PATTERNS table is best-effort: Microsoft 365 and Google
+Workspace MX hostnames are standardized and match reliably; the Swiss
+hosting-provider entries are educated guesses at commonly seen MX hostnames
+and may need extending once real full-scan data shows which "other"-bucket
+hostnames are actually common. mx_hosts is stored raw in the DB precisely so
+that reclassification later doesn't require a re-scan.
+
+Matching requires an exact host or a dot-bounded suffix (e.g. "cyon.ch"
+matches "mx1.cyon.ch" but not "mail.halcyon.ch") — plain substring matching
+would misclassify unrelated hosts that happen to contain a pattern.
+"""
+
+# (provider_key, [substrings to match against a lowercased MX hostname])
+MX_PROVIDER_PATTERNS = [
+    ("microsoft365", ["mail.protection.outlook.com"]),
+    ("google_workspace", [
+        "aspmx.l.google.com", "aspmx2.googlemail.com", "aspmx3.googlemail.com",
+        "aspmx4.googlemail.com", "aspmx5.googlemail.com",
+        "alt1.aspmx.l.google.com", "alt2.aspmx.l.google.com",
+        "alt3.aspmx.l.google.com", "alt4.aspmx.l.google.com",
+        "smtp.google.com",
+    ]),
+    ("hostpoint", ["hostpoint.ch"]),
+    ("infomaniak", ["infomaniak.ch", "infomaniak.com"]),
+    ("cyon", ["cyon.ch", "cyon.net"]),
+    ("swisscom", ["swisscom.ch", "bluewin.ch"]),
+    ("init7", ["init7.net"]),
+    ("greench", ["green.ch"]),
+    ("vtx", ["vtxmail.ch", "vtxnet.ch"]),
+    ("metanet", ["metanet.ch"]),
+    ("protonmail", ["protonmail.ch", "proton.me"]),
+    ("mailbox_org", ["mailbox.org"]),
+    ("gmx", ["gmx.net", "gmx.ch"]),
+    ("ovh", ["mx.ovh.net", "mx.ovh.com", "mx.ovh.ca"]),
+    ("mimecast", ["mimecast.com"]),
+    ("proofpoint", ["pphosted.com"]),
+    ("barracuda", ["barracudanetworks.com"]),
+]
+
+_DKIM_SELECTORS_BY_PROVIDER = {
+    "microsoft365": ["selector1", "selector2"],
+    "google_workspace": ["google"],
+}
+
+
+def _host_matches(host: str, pattern: str) -> bool:
+    return host == pattern or host.endswith("." + pattern)
+
+
+def fingerprint_mx_provider(mx_hosts: list, domain: str) -> str:
+    hosts_lower = [h.lower().rstrip(".") for h in mx_hosts]
+
+    for provider, patterns in MX_PROVIDER_PATTERNS:
+        for host in hosts_lower:
+            if any(_host_matches(host, pattern) for pattern in patterns):
+                return provider
+
+    domain_lower = domain.lower().rstrip(".")
+    for host in hosts_lower:
+        if host == domain_lower or host.endswith(f".{domain_lower}"):
+            return "self_hosted"
+
+    return "other"
+
+
+def dkim_selectors_for_provider(mx_provider: str) -> list:
+    return _DKIM_SELECTORS_BY_PROVIDER.get(mx_provider, ["default"])
