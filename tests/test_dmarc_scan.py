@@ -269,3 +269,46 @@ def test_dkim_weak_key_and_testing_mode_flagged_when_any_selector_shows_them():
     assert result.has_dkim is True
     assert result.dkim_testing_mode is True
     assert result.dkim_weak_key is True
+
+
+def test_dkim_accumulator_across_multiple_selectors():
+    # Regression test: ensures "ANY selector" accumulation logic works.
+    # Two selectors resolve with different flag values; both issues should
+    # be flagged (dkim_testing_mode/dkim_weak_key both True).
+    domain = "mixed-dkim.ch"
+    query = RecordingQuery({
+        (domain, "MX"): ("ok", ["10 mail.somehost.example."]),
+        (domain, "DS"): ("noanswer", []),
+        (domain, "TXT"): ("noanswer", []),
+        (domain, "SPF"): ("noanswer", []),
+        (f"_dmarc.{domain}", "TXT"): ("noanswer", []),
+        # Selector 1: clean (strong key, no testing mode)
+        (f"default._domainkey.{domain}", "TXT"): (
+            "ok", ["v=DKIM1; k=rsa; p=" + "A" * 392]),
+        # Selector 2: problematic (weak key, testing mode)
+        (f"selector1._domainkey.{domain}", "TXT"): (
+            "ok", ["v=DKIM1; t=y; k=rsa; p=" + "A" * 216]),
+        # Remaining selectors for "other" provider fallback
+        (f"selector2._domainkey.{domain}", "TXT"): ("noanswer", []),
+        (f"google._domainkey.{domain}", "TXT"): ("noanswer", []),
+        (f"k1._domainkey.{domain}", "TXT"): ("noanswer", []),
+        (f"s1._domainkey.{domain}", "TXT"): ("noanswer", []),
+        (f"s2._domainkey.{domain}", "TXT"): ("noanswer", []),
+        (f"mail._domainkey.{domain}", "TXT"): ("noanswer", []),
+        (f"dkim._domainkey.{domain}", "TXT"): ("noanswer", []),
+        (f"smtp._domainkey.{domain}", "TXT"): ("noanswer", []),
+        (f"key1._domainkey.{domain}", "TXT"): ("noanswer", []),
+        (f"mx._domainkey.{domain}", "TXT"): ("noanswer", []),
+        (f"default._bimi.{domain}", "TXT"): ("noanswer", []),
+        (f"_mta-sts.{domain}", "TXT"): ("noanswer", []),
+        (f"_smtp._tls.{domain}", "TXT"): ("noanswer", []),
+        (domain, "CAA"): ("noanswer", []),
+    })
+    result = scan_domain(domain, query)
+
+    # Both selectors resolve (default and selector1)
+    assert result.has_dkim is True
+    assert result.dkim_selectors_found == ["default", "selector1"]
+    # Accumulator correctly flags both issues (one from each selector)
+    assert result.dkim_testing_mode is True
+    assert result.dkim_weak_key is True
