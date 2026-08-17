@@ -165,4 +165,15 @@ def scan_domain(domain: str, query) -> DmarcScanResult:
         result.has_caa = True
         result.caa_records = caa_answers
 
+    tlsa_checked = []
+    tlsa_found = []
+    for host in result.mx_hosts:
+        tlsa_checked.append(host)
+        tlsa_status, tlsa_answers = query(f"_25._tcp.{host}", "TLSA")
+        if tlsa_status == "ok" and tlsa_answers:
+            tlsa_found.append(host)
+    result.tlsa_hosts_checked = tlsa_checked
+    result.tlsa_hosts_found = tlsa_found
+    result.has_tlsa = bool(tlsa_found)
+
     return result

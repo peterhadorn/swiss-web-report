@@ -406,3 +406,47 @@ def test_transient_dns_error_on_aaaa_after_noanswer_a_is_not_flagged_as_dangling
 
     assert result.mx_hosts_unresolvable == []
     assert result.mx_unresolvable is False
+
+
+def test_tlsa_found_for_mx_host():
+    domain = "dane-enabled.ch"
+    query = RecordingQuery({
+        (domain, "MX"): ("ok", ["10 mail.dane-enabled.ch."]),
+        (domain, "DS"): ("ok", ["12345 8 2 ABCDEF"]),
+        (domain, "TXT"): ("noanswer", []),
+        (domain, "SPF"): ("noanswer", []),
+        (f"_dmarc.{domain}", "TXT"): ("noanswer", []),
+        ("mail.dane-enabled.ch", "A"): ("ok", ["203.0.113.5"]),
+        (f"default._bimi.{domain}", "TXT"): ("noanswer", []),
+        (f"_mta-sts.{domain}", "TXT"): ("noanswer", []),
+        (f"_smtp._tls.{domain}", "TXT"): ("noanswer", []),
+        (domain, "CAA"): ("noanswer", []),
+        ("_25._tcp.mail.dane-enabled.ch", "TLSA"): ("ok", ["3 1 1 abc123"]),
+    })
+    result = scan_domain(domain, query)
+
+    assert result.tlsa_hosts_checked == ["mail.dane-enabled.ch"]
+    assert result.tlsa_hosts_found == ["mail.dane-enabled.ch"]
+    assert result.has_tlsa is True
+
+
+def test_tlsa_absent_when_no_tlsa_record():
+    domain = "no-dane.ch"
+    query = RecordingQuery({
+        (domain, "MX"): ("ok", ["10 mail.no-dane.ch."]),
+        (domain, "DS"): ("noanswer", []),
+        (domain, "TXT"): ("noanswer", []),
+        (domain, "SPF"): ("noanswer", []),
+        (f"_dmarc.{domain}", "TXT"): ("noanswer", []),
+        ("mail.no-dane.ch", "A"): ("ok", ["203.0.113.9"]),
+        (f"default._bimi.{domain}", "TXT"): ("noanswer", []),
+        (f"_mta-sts.{domain}", "TXT"): ("noanswer", []),
+        (f"_smtp._tls.{domain}", "TXT"): ("noanswer", []),
+        (domain, "CAA"): ("noanswer", []),
+        ("_25._tcp.mail.no-dane.ch", "TLSA"): ("noanswer", []),
+    })
+    result = scan_domain(domain, query)
+
+    assert result.tlsa_hosts_checked == ["mail.no-dane.ch"]
+    assert result.tlsa_hosts_found == []
+    assert result.has_tlsa is False

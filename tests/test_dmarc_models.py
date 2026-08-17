@@ -40,6 +40,9 @@ def test_default_result_has_safe_defaults():
     assert result.tlsrpt_record == ""
     assert result.has_caa is False
     assert result.caa_records == []
+    assert result.has_tlsa is False
+    assert result.tlsa_hosts_checked == []
+    assert result.tlsa_hosts_found == []
     assert result.error == ""
     assert result.mx_hosts_unresolvable == []
     assert result.mx_unresolvable is False

@@ -25,6 +25,7 @@ COLUMNS = [
     "has_mta_sts INTEGER", "mta_sts_record TEXT",
     "has_tlsrpt INTEGER", "tlsrpt_record TEXT",
     "has_caa INTEGER", "caa_records TEXT",
+    "has_tlsa INTEGER", "tlsa_hosts_checked TEXT", "tlsa_hosts_found TEXT",
     "error TEXT",
     "scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
 ]
@@ -33,6 +34,7 @@ EXPECTED_COLUMNS = {col.split()[0] for col in COLUMNS}
 JSON_FIELDS = {
     "mx_hosts", "dkim_selectors_checked", "dkim_selectors_found", "caa_records",
     "dmarc_rua_domains", "dmarc_ruf_domains", "mx_hosts_unresolvable",
+    "tlsa_hosts_checked", "tlsa_hosts_found",
 }
 
 

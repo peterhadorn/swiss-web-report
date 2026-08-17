@@ -72,6 +72,14 @@ class DmarcScanResult:
     has_caa: bool = False
     caa_records: list = field(default_factory=list)
 
+    # TLSA / DANE for SMTP — checked at _25._tcp.<mx_host> for each MX host.
+    # The DNSSEC-anchored sibling of MTA-STS (same goal: enforce TLS on
+    # inbound mail), fully passive-DNS-checkable unlike MTA-STS's *mode*
+    # (which needs an HTTPS fetch and stays out of scope).
+    has_tlsa: bool = False
+    tlsa_hosts_checked: list = field(default_factory=list)
+    tlsa_hosts_found: list = field(default_factory=list)
+
     # Error — non-empty means a DNS query failed for this domain; excluded
     # from the resume "done" set (see dmarc_scanner/db.py) so it gets retried.
     error: str = ""
