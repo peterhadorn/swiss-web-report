@@ -1,0 +1,179 @@
+from dmarc_scanner.parsers import (
+    find_first, is_bimi_record, is_dkim_record, is_dmarc_record,
+    is_mta_sts_record, is_spf_record, is_tlsrpt_record,
+    parse_dmarc, parse_mx_answer, parse_spf,
+)
+
+
+# --- record-type identification -------------------------------------------
+
+def test_is_spf_record():
+    assert is_spf_record("v=spf1 -all") is True
+    assert is_spf_record("V=SPF1 include:_spf.google.com ~all") is True
+    assert is_spf_record("google-site-verification=abc123") is False
+
+
+def test_is_dmarc_record():
+    assert is_dmarc_record("v=DMARC1; p=reject;") is True
+    assert is_dmarc_record("v=dmarc1;p=none") is True
+    assert is_dmarc_record("v=spf1 -all") is False
+
+
+def test_is_bimi_record():
+    assert is_bimi_record("v=BIMI1; l=https://example.ch/logo.svg;") is True
+    assert is_bimi_record("v=spf1 -all") is False
+
+
+def test_is_mta_sts_record():
+    assert is_mta_sts_record("v=STSv1; id=20260101000000Z;") is True
+    assert is_mta_sts_record("v=spf1 -all") is False
+
+
+def test_is_tlsrpt_record():
+    assert is_tlsrpt_record("v=TLSRPTv1;rua=mailto:tls-reports@example.ch") is True
+    assert is_tlsrpt_record("v=spf1 -all") is False
+
+
+# --- DKIM: requires a non-empty p= tag (RFC 6376 §3.6.1 — an empty p=
+# means the key was revoked, and the v= tag itself is only RECOMMENDED,
+# not required, so we can't key off "v=DKIM1" alone) ------------------------
+
+def test_is_dkim_record_true_with_key_material():
+    assert is_dkim_record("v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCB") is True
+
+
+def test_is_dkim_record_true_without_v_tag():
+    assert is_dkim_record("k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCB") is True
+
+
+def test_is_dkim_record_false_when_p_tag_empty_revoked_key():
+    assert is_dkim_record("v=DKIM1; k=rsa; p=") is False
+
+
+def test_is_dkim_record_false_when_p_tag_missing():
+    assert is_dkim_record("v=DKIM1; k=rsa") is False
+
+
+# --- find_first -------------------------------------------------------------
+
+def test_find_first_returns_matching_record_among_others():
+    records = [
+        "google-site-verification=abc123",
+        "v=spf1 include:_spf.google.com ~all",
+        "some-other-txt-record",
+    ]
+    assert find_first(records, is_spf_record) == "v=spf1 include:_spf.google.com ~all"
+
+
+def test_find_first_returns_none_when_no_match():
+    assert find_first(["google-site-verification=abc123"], is_spf_record) is None
+
+
+# --- parse_mx_answer ---------------------------------------------------------
+
+def test_parse_mx_answer_strips_trailing_dot_and_lowercases():
+    assert parse_mx_answer("10 mail.Example.ch.") == (10, "mail.example.ch")
+
+
+def test_parse_mx_answer_without_trailing_dot():
+    assert parse_mx_answer("20 mx2.example.ch") == (20, "mx2.example.ch")
+
+
+def test_parse_mx_answer_null_mx_yields_empty_host():
+    # RFC 7505 null MX: "0 ." — the domain explicitly declares it accepts no
+    # mail. Callers (dmarc_scanner/scan.py) must treat an empty host as "no
+    # real mail server", not as has_mx=True.
+    assert parse_mx_answer("0 .") == (0, "")
+
+
+# --- parse_spf: all-mechanism strength ---------------------------------------
+
+def test_parse_spf_hardfail():
+    assert parse_spf("v=spf1 include:_spf.google.com -all")["all_mechanism"] == "hardfail"
+
+
+def test_parse_spf_softfail():
+    assert parse_spf("v=spf1 include:_spf.google.com ~all")["all_mechanism"] == "softfail"
+
+
+def test_parse_spf_neutral():
+    assert parse_spf("v=spf1 include:_spf.google.com ?all")["all_mechanism"] == "neutral"
+
+
+def test_parse_spf_pass_all_is_weak():
+    assert parse_spf("v=spf1 include:_spf.google.com +all")["all_mechanism"] == "pass"
+
+
+def test_parse_spf_bare_all_means_pass():
+    assert parse_spf("v=spf1 all")["all_mechanism"] == "pass"
+
+
+def test_parse_spf_no_all_mechanism():
+    assert parse_spf("v=spf1 include:_spf.google.com")["all_mechanism"] == "none"
+
+
+# --- parse_spf: lookup counting ----------------------------------------------
+
+def test_parse_spf_counts_include():
+    r = parse_spf("v=spf1 include:_spf.google.com include:spf.protection.outlook.com -all")
+    assert r["lookup_count"] == 2
+
+
+def test_parse_spf_counts_bare_a_and_mx():
+    r = parse_spf("v=spf1 a mx -all")
+    assert r["lookup_count"] == 2
+
+
+def test_parse_spf_counts_a_and_mx_with_domain_or_cidr():
+    r = parse_spf("v=spf1 a:mail.example.ch mx:example.ch a/24 -all")
+    assert r["lookup_count"] == 3
+
+
+def test_parse_spf_counts_exists_and_redirect():
+    r = parse_spf("v=spf1 exists:%{i}._spf.example.ch redirect=_spf.example.ch")
+    assert r["lookup_count"] == 2
+
+
+def test_parse_spf_ip4_ip6_do_not_count():
+    r = parse_spf("v=spf1 ip4:203.0.113.0/24 ip6:2001:db8::/32 -all")
+    assert r["lookup_count"] == 0
+
+
+def test_parse_spf_counts_qualified_mechanisms():
+    # RFC 7208 §4.6.2: every mechanism may carry a leading qualifier
+    # (+ - ~ ?). A qualified mechanism still costs a lookup.
+    r = parse_spf(
+        "v=spf1 +a -mx +include:_spf.example.ch "
+        "~include:spf.protection.outlook.com -all"
+    )
+    assert r["lookup_count"] == 4
+
+
+def test_parse_spf_near_limit_flag():
+    below = "v=spf1 " + " ".join(f"include:s{i}.example.com" for i in range(7)) + " -all"
+    at = "v=spf1 " + " ".join(f"include:s{i}.example.com" for i in range(8)) + " -all"
+    assert parse_spf(below)["near_limit"] is False
+    assert parse_spf(at)["near_limit"] is True
+
+
+# --- parse_dmarc --------------------------------------------------------------
+
+def test_parse_dmarc_reject_with_rua_and_ruf():
+    r = parse_dmarc("v=DMARC1; p=reject; rua=mailto:d@example.ch; ruf=mailto:f@example.ch")
+    assert r == {"policy": "reject", "has_rua": True, "has_ruf": True}
+
+
+def test_parse_dmarc_none_without_reporting():
+    r = parse_dmarc("v=DMARC1; p=none;")
+    assert r == {"policy": "none", "has_rua": False, "has_ruf": False}
+
+
+def test_parse_dmarc_quarantine_case_insensitive_tag():
+    r = parse_dmarc("v=DMARC1; P=Quarantine; RUA=mailto:d@example.ch")
+    assert r["policy"] == "quarantine"
+    assert r["has_rua"] is True
+
+
+def test_parse_dmarc_missing_policy_tag_is_absent():
+    r = parse_dmarc("v=DMARC1; rua=mailto:d@example.ch")
+    assert r["policy"] == "absent"
